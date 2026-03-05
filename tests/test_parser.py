@@ -206,7 +206,11 @@ def test_parse_fixture_image_refs(tmp_path):
 
 
 def test_extract_messages_handles_dalle_image(tmp_path):
-    """file-service:// asset pointers (DALL-E) should be stripped and treated like sediment://."""
+    """file-service:// asset pointers (DALL-E) should have the URI prefix stripped.
+
+    The bare file ID ends up in image_refs; copy_asset resolves it from
+    dalle-generations/ (handled separately in file_manager.py).
+    """
     mapping = {
         'a': {
             'id': 'a', 'parent': None, 'children': [],

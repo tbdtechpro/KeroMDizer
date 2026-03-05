@@ -138,7 +138,11 @@ class ConversationParser:
         return refs
 
     def _strip_asset_uri(self, uri: str) -> str:
-        """Strip sediment:// or file-service:// URI prefix, returning bare file ID."""
+        """Strip sediment:// or file-service:// URI prefix, returning bare file ID.
+
+        If uri has no recognised prefix it is returned unchanged — bare file IDs
+        (no scheme) are valid input.
+        """
         for prefix in ('sediment://', 'file-service://'):
             if uri.startswith(prefix):
                 return uri[len(prefix):]
