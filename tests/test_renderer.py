@@ -90,3 +90,35 @@ def test_render_unknown_model():
     r = MarkdownRenderer()
     md = r.render(conv, conv.branches[0])
     assert '| Model | unknown |' in md
+
+
+def test_render_shared_flag():
+    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
+    conv.is_shared = True
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '| Shared | Yes |' in md
+
+
+def test_render_no_shared_flag_when_false():
+    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
+    # is_shared defaults to False
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '| Shared |' not in md
+
+
+def test_render_audio_count():
+    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
+    conv.audio_count = 5
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '| Audio | 5 recordings |' in md
+
+
+def test_render_no_audio_row_when_zero():
+    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
+    # audio_count defaults to 0
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '| Audio |' not in md
