@@ -12,7 +12,9 @@ class FileManager:
         self.assets_dir = self.output_dir / 'assets'
         self.manifest_path = self.output_dir / 'manifest.json'
         self._manifest: dict = self._load_manifest()
-        self._used_filenames: set[str] = set()
+        self._used_filenames: set[str] = {
+            f for entry in self._manifest.values() for f in entry.get('files', [])
+        }
 
     def _load_manifest(self) -> dict:
         if self.manifest_path.exists():
