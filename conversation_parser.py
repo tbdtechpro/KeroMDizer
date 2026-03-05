@@ -7,15 +7,27 @@ from models import Conversation, Branch, Message
 class ConversationParser:
     def __init__(self, export_folder: Path):
         self.export_folder = Path(export_folder)
-        self._conversations_file = self.export_folder / 'conversations.json'
+
+    def _load_raw_conversations(self) -> list[dict]:
+        """Load raw conversation dicts from conversations.json or paginated conversations-NNN.json files."""
+        single = self.export_folder / 'conversations.json'
+        if single.exists():
+            with open(single, encoding='utf-8') as f:
+                return json.load(f)
+
+        pages = sorted(self.export_folder.glob('conversations-*.json'))
+        if not pages:
+            raise FileNotFoundError(
+                f"No conversations.json or conversations-NNN.json files found in {self.export_folder}"
+            )
+        data = []
+        for page in pages:
+            with open(page, encoding='utf-8') as f:
+                data.extend(json.load(f))
+        return data
 
     def parse(self) -> list[Conversation]:
-        if not self._conversations_file.exists():
-            raise FileNotFoundError(
-                f"conversations.json not found in {self.export_folder}"
-            )
-        with open(self._conversations_file, encoding='utf-8') as f:
-            data = json.load(f)
+        data = self._load_raw_conversations()
 
         shared_ids = self._load_shared_ids()
         conversations = []
