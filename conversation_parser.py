@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from models import Conversation, Branch, Message
 
@@ -30,12 +31,16 @@ class ConversationParser:
         return conversations
 
     def _load_shared_ids(self) -> set[str]:
-        """Return set of conversation IDs from shared_conversations.json, or empty set if absent."""
+        """Return set of conversation IDs from shared_conversations.json, or empty set if absent or malformed."""
         path = self.export_folder / 'shared_conversations.json'
         if not path.exists():
             return set()
-        with open(path, encoding='utf-8') as f:
-            data = json.load(f)
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f'Warning: could not parse shared_conversations.json: {e}', file=sys.stderr)
+            return set()
         return {entry['conversation_id'] for entry in data if 'conversation_id' in entry}
 
     def _parse_conversation(self, raw: dict) -> Conversation | None:
@@ -76,8 +81,11 @@ class ConversationParser:
         ]
 
         conv_id = raw.get('id') or raw.get('conversation_id', '')
-        audio_dir = self.export_folder / conv_id / 'audio'
-        audio_count = len(list(audio_dir.glob('*.wav'))) if audio_dir.is_dir() else 0
+        if conv_id:
+            audio_dir = self.export_folder / conv_id / 'audio'
+            audio_count = len(list(audio_dir.glob('*.wav'))) if audio_dir.is_dir() else 0
+        else:
+            audio_count = 0
 
         return Conversation(
             id=conv_id,

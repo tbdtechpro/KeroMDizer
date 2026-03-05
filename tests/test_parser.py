@@ -300,6 +300,70 @@ def test_parse_not_shared_when_absent(tmp_path):
     assert convs[0].is_shared is False
 
 
+def test_parse_shared_ids_handles_malformed_json(tmp_path, capsys):
+    """Malformed shared_conversations.json is warned and gracefully skipped."""
+    conv_data = [{
+        'id': 'conv-001',
+        'title': 'Test',
+        'mapping': {
+            'a': {'id': 'a', 'parent': None, 'children': ['b'], 'message': None},
+            'b': {
+                'id': 'b', 'parent': 'a', 'children': [],
+                'message': {
+                    'author': {'role': 'user'},
+                    'content': {'content_type': 'text', 'parts': ['hi']},
+                    'create_time': None, 'metadata': {}
+                }
+            },
+        },
+        'current_node': 'b',
+        'create_time': 1700000000.0,
+        'update_time': 1700000100.0,
+        'default_model_slug': 'gpt-4o',
+    }]
+    export = _make_export(tmp_path, conv_data)
+    (export / 'shared_conversations.json').write_text('not valid json', encoding='utf-8')
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    assert len(convs) == 1
+    assert convs[0].is_shared is False
+    captured = capsys.readouterr()
+    assert 'Warning' in captured.err
+    assert 'shared_conversations.json' in captured.err
+
+
+def test_parse_not_shared_when_not_in_file(tmp_path):
+    """Conversation not listed in shared_conversations.json gets is_shared=False."""
+    conv_data = [{
+        'id': 'conv-private-2',
+        'title': 'Private Chat 2',
+        'mapping': {
+            'a': {'id': 'a', 'parent': None, 'children': ['b'], 'message': None},
+            'b': {
+                'id': 'b', 'parent': 'a', 'children': [],
+                'message': {
+                    'author': {'role': 'user'},
+                    'content': {'content_type': 'text', 'parts': ['hello']},
+                    'create_time': None, 'metadata': {}
+                }
+            },
+        },
+        'current_node': 'b',
+        'create_time': 1700000000.0,
+        'update_time': 1700000100.0,
+        'default_model_slug': 'gpt-4o',
+    }]
+    export = _make_export(tmp_path, conv_data)
+    # shared_conversations.json exists but conv-private-2 is NOT listed
+    (export / 'shared_conversations.json').write_text(
+        json.dumps([{'conversation_id': 'conv-other-999', 'id': 'share-xyz', 'title': 'Other', 'is_anonymous': False}]),
+        encoding='utf-8',
+    )
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    assert convs[0].is_shared is False
+
+
 def test_parse_counts_audio_recordings(tmp_path):
     """Conversations with an audio/ subfolder get audio_count set."""
     conv_id = 'conv-voice-1'
