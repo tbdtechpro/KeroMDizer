@@ -203,3 +203,35 @@ def test_parse_fixture_image_refs(tmp_path):
     user_msg = conv.branches[0].messages[0]
     assert 'file_abc123' in user_msg.image_refs
     assert 'assets/file_abc123' in user_msg.text
+
+
+def test_extract_messages_handles_dalle_image(tmp_path):
+    """file-service:// asset pointers (DALL-E) should be stripped and treated like sediment://."""
+    mapping = {
+        'a': {
+            'id': 'a', 'parent': None, 'children': [],
+            'message': {
+                'author': {'role': 'assistant'},
+                'content': {
+                    'content_type': 'multimodal_text',
+                    'parts': [
+                        'Here is your image:',
+                        {
+                            'content_type': 'image_asset_pointer',
+                            'asset_pointer': 'file-service://file-AbCdEfGhIj',
+                            'size_bytes': 100,
+                            'width': 512,
+                            'height': 512,
+                        }
+                    ]
+                },
+                'create_time': 1700000010.0, 'metadata': {}
+            }
+        },
+    }
+    parser = ConversationParser(tmp_path)
+    messages = parser._extract_messages(mapping, ['a'])
+    assert len(messages) == 1
+    assert 'file-AbCdEfGhIj' in messages[0].text
+    assert '![image](assets/file-AbCdEfGhIj)' in messages[0].text
+    assert messages[0].image_refs == ['file-AbCdEfGhIj']

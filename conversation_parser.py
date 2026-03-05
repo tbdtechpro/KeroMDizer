@@ -123,7 +123,7 @@ class ConversationParser:
                 segments.append(part)
             elif isinstance(part, dict):
                 if part.get('content_type') == 'image_asset_pointer':
-                    file_id = part.get('asset_pointer', '').replace('sediment://', '')
+                    file_id = self._strip_asset_uri(part.get('asset_pointer', ''))
                     if file_id:
                         segments.append(f'![image](assets/{file_id})')
         return '\n\n'.join(segments)
@@ -132,7 +132,14 @@ class ConversationParser:
         refs = []
         for part in parts:
             if isinstance(part, dict) and part.get('content_type') == 'image_asset_pointer':
-                file_id = part.get('asset_pointer', '').replace('sediment://', '')
+                file_id = self._strip_asset_uri(part.get('asset_pointer', ''))
                 if file_id:
                     refs.append(file_id)
         return refs
+
+    def _strip_asset_uri(self, uri: str) -> str:
+        """Strip sediment:// or file-service:// URI prefix, returning bare file ID."""
+        for prefix in ('sediment://', 'file-service://'):
+            if uri.startswith(prefix):
+                return uri[len(prefix):]
+        return uri
