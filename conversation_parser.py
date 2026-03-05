@@ -90,5 +90,50 @@ class ConversationParser:
         return path
 
     def _extract_messages(self, mapping: dict, path_ids: list[str]) -> list[Message]:
-        # Stub — implemented in Task 4
-        return []
+        messages = []
+        for nid in path_ids:
+            node = mapping.get(nid, {})
+            msg = node.get('message')
+            if not msg:
+                continue
+            role = msg.get('author', {}).get('role')
+            if role not in ('user', 'assistant'):
+                continue
+            content = msg.get('content', {})
+            if not isinstance(content, dict):
+                continue
+            content_type = content.get('content_type')
+            if content_type not in ('text', 'multimodal_text'):
+                continue
+            parts = content.get('parts') or []
+            text = self._parts_to_text(parts)
+            image_refs = self._extract_image_refs(parts)
+            if not text.strip() and not image_refs:
+                continue
+            messages.append(Message(
+                role=role,
+                text=text,
+                create_time=msg.get('create_time'),
+                image_refs=image_refs,
+            ))
+        return messages
+
+    def _parts_to_text(self, parts: list) -> str:
+        segments = []
+        for part in parts:
+            if isinstance(part, str):
+                segments.append(part)
+            elif isinstance(part, dict):
+                if part.get('content_type') == 'image_asset_pointer':
+                    file_id = part.get('asset_pointer', '').replace('sediment://', '')
+                    segments.append(f'![image](assets/{file_id})')
+        return '\n'.join(segments)
+
+    def _extract_image_refs(self, parts: list) -> list[str]:
+        refs = []
+        for part in parts:
+            if isinstance(part, dict) and part.get('content_type') == 'image_asset_pointer':
+                file_id = part.get('asset_pointer', '').replace('sediment://', '')
+                if file_id:
+                    refs.append(file_id)
+        return refs

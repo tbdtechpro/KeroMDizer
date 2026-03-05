@@ -93,3 +93,113 @@ def test_main_branch_is_index_1(tmp_path):
     assert main.branch_index == 1
     # Main branch ends at node-d (the current_node), so has 3 messages: user, assistant, user
     assert len(main.messages) == 3
+
+
+def test_extract_messages_filters_system_and_tool(tmp_path):
+    mapping = {
+        'a': {
+            'id': 'a', 'parent': None, 'children': ['b'],
+            'message': {
+                'author': {'role': 'system'},
+                'content': {'content_type': 'text', 'parts': ['system prompt']},
+                'create_time': None, 'metadata': {}
+            }
+        },
+        'b': {
+            'id': 'b', 'parent': 'a', 'children': [],
+            'message': {
+                'author': {'role': 'user'},
+                'content': {'content_type': 'text', 'parts': ['Hello']},
+                'create_time': 1700000010.0, 'metadata': {}
+            }
+        },
+    }
+    parser = ConversationParser(tmp_path)
+    messages = parser._extract_messages(mapping, ['a', 'b'])
+    assert len(messages) == 1
+    assert messages[0].role == 'user'
+    assert messages[0].text == 'Hello'
+
+
+def test_extract_messages_filters_non_text_content(tmp_path):
+    mapping = {
+        'a': {
+            'id': 'a', 'parent': None, 'children': ['b'],
+            'message': {
+                'author': {'role': 'assistant'},
+                'content': {'content_type': 'thoughts', 'thoughts': [{'summary': 'thinking', 'content': 'I think'}]},
+                'create_time': None, 'metadata': {}
+            }
+        },
+        'b': {
+            'id': 'b', 'parent': 'a', 'children': [],
+            'message': {
+                'author': {'role': 'assistant'},
+                'content': {'content_type': 'text', 'parts': ['Here is the answer.']},
+                'create_time': 1700000020.0, 'metadata': {}
+            }
+        },
+    }
+    parser = ConversationParser(tmp_path)
+    messages = parser._extract_messages(mapping, ['a', 'b'])
+    assert len(messages) == 1
+    assert messages[0].text == 'Here is the answer.'
+
+
+def test_extract_messages_handles_multimodal(tmp_path):
+    mapping = {
+        'a': {
+            'id': 'a', 'parent': None, 'children': [],
+            'message': {
+                'author': {'role': 'user'},
+                'content': {
+                    'content_type': 'multimodal_text',
+                    'parts': [
+                        'What is this?',
+                        {
+                            'content_type': 'image_asset_pointer',
+                            'asset_pointer': 'sediment://file_abc123',
+                            'size_bytes': 100,
+                            'width': 100,
+                            'height': 100,
+                        }
+                    ]
+                },
+                'create_time': 1700000010.0, 'metadata': {}
+            }
+        },
+    }
+    parser = ConversationParser(tmp_path)
+    messages = parser._extract_messages(mapping, ['a'])
+    assert len(messages) == 1
+    assert 'What is this?' in messages[0].text
+    assert 'file_abc123' in messages[0].text
+    assert messages[0].image_refs == ['file_abc123']
+
+
+def test_parse_fixture_message_content(tmp_path):
+    with open(FIXTURE) as f:
+        data = json.load(f)
+    export = _make_export(tmp_path, data)
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    conv = next(c for c in convs if c.id == 'conv-001')
+    main = conv.branches[0]
+    # Main branch: user -> assistant -> user
+    assert main.messages[0].role == 'user'
+    assert 'hello world' in main.messages[0].text.lower()
+    assert main.messages[1].role == 'assistant'
+    assert '```python' in main.messages[1].text
+    assert main.messages[2].role == 'user'
+
+
+def test_parse_fixture_image_refs(tmp_path):
+    with open(FIXTURE) as f:
+        data = json.load(f)
+    export = _make_export(tmp_path, data)
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    conv = next(c for c in convs if c.id == 'conv-002')
+    user_msg = conv.branches[0].messages[0]
+    assert 'file_abc123' in user_msg.image_refs
+    assert 'assets/file_abc123' in user_msg.text
