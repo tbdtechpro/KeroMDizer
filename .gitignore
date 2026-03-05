@@ -1,3 +1,4 @@
+# ── Python ─────────────────────────────────────────────────────────────────────
 __pycache__/
 *.pyc
 *.pyo
@@ -6,6 +7,42 @@ __pycache__/
 *.egg-info/
 dist/
 build/
+
+# ── KeroMDizer output directories ──────────────────────────────────────────────
+# Default output dir and common alternatives — add your own if you use a custom name
 output/
-# ChatGPT export assets — real exports, not fixtures
+converted/
+markdown/
+exports/
+md_output/
+
+# ── ChatGPT / AI export data — personal data, never commit ────────────────────
+
+# Core export files (PII: email, phone, conversation history)
+conversations.json
+user.json
+message_feedback.json
+shared_conversations.json
+group_chats.json
+shopping.json
+sora.json
+
+# Export image assets (user uploads and DALL-E generated images)
+*-sanitized.jpeg
+*-sanitized.jpg
+*-sanitized.png
+*-sanitized.webp
+dalle-generations/
+
+# Export image files (file-xxx naming scheme used in ChatGPT exports)
+file-*.jpeg
+file-*.jpg
+file-*.png
+file-*.webp
+
+# Deduplication manifest (contains conversation IDs and filenames)
+manifest.json
+
+# Entire export folders — the hex-named directory pattern ChatGPT uses
+# (add new export folder names here if you copy them into this directory)
 0bab8e77c5a63f18a71fbe7235e764bf/
