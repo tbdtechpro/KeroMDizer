@@ -1,5 +1,5 @@
 from datetime import timezone
-from models import Message, Branch, Conversation
+from models import Message, Branch, Conversation, PersonaConfig
 from renderer import MarkdownRenderer
 
 
@@ -149,7 +149,6 @@ def test_render_default_persona_assistant_label():
 
 
 def test_render_custom_user_name():
-    from models import PersonaConfig
     msg = Message(role='user', text='hi')
     conv = _make_conv([_make_branch([msg])])
     r = MarkdownRenderer(persona=PersonaConfig(user_name='Matt', assistant_name='Assistant'))
@@ -159,7 +158,6 @@ def test_render_custom_user_name():
 
 
 def test_render_custom_assistant_name():
-    from models import PersonaConfig
     msg = Message(role='assistant', text='hello')
     conv = _make_conv([_make_branch([msg])])
     r = MarkdownRenderer(persona=PersonaConfig(user_name='User', assistant_name='ChatGPT'))
@@ -169,7 +167,6 @@ def test_render_custom_assistant_name():
 
 
 def test_render_none_persona_uses_defaults():
-    from models import PersonaConfig
     msg = Message(role='user', text='hi')
     conv = _make_conv([_make_branch([msg])])
     r = MarkdownRenderer(persona=None)

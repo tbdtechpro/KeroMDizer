@@ -35,7 +35,10 @@ class MarkdownRenderer:
         for msg in branch.messages:
             lines.append('---')
             lines.append('')
-            header = f'### 👤 {self.persona.user_name}' if msg.role == 'user' else f'### 🤖 {self.persona.assistant_name}'
+            if msg.role == 'user':
+                header = f'### 👤 {self.persona.user_name}'
+            else:
+                header = f'### 🤖 {self.persona.assistant_name}'
             lines += [header, '', msg.text, '']
 
         lines += ['---', '']
