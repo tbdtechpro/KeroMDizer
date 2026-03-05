@@ -79,3 +79,15 @@ def test_load_persona_returns_persona_config_instance(monkeypatch, tmp_path):
     monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
     persona = config.load_persona()
     assert isinstance(persona, PersonaConfig)
+
+
+def test_load_persona_empty_string_user_name_falls_back(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
+    persona = config.load_persona(user_name='')
+    assert persona.user_name == 'User'
+
+
+def test_load_persona_empty_string_assistant_name_falls_back(monkeypatch, tmp_path):
+    monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
+    persona = config.load_persona(assistant_name='')
+    assert persona.assistant_name == 'ChatGPT'

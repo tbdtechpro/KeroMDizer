@@ -26,13 +26,16 @@ def load_persona(
     """
     data: dict[str, object] = {}
     if CONFIG_PATH.exists():
-        with open(CONFIG_PATH, 'rb') as f:
-            data = tomllib.load(f)
+        try:
+            with open(CONFIG_PATH, 'rb') as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError as e:
+            raise ValueError(f'Error parsing {CONFIG_PATH}: {e}') from e
 
-    resolved_user = user_name if user_name is not None else (
+    resolved_user = (user_name.strip() if user_name is not None else None) or (
         data.get('user', {}).get('name') or 'User'
     )
-    resolved_assistant = assistant_name if assistant_name is not None else (
+    resolved_assistant = (assistant_name.strip() if assistant_name is not None else None) or (
         data.get('providers', {}).get(provider, {}).get('assistant_name')
         or PROVIDER_DEFAULTS.get(provider, 'Assistant')
     )

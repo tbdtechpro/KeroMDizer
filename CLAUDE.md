@@ -22,6 +22,15 @@ python keromdizer.py /path/to/export/ --output ~/notes/chatgpt
 # Preview without writing files
 python keromdizer.py /path/to/export/ --dry-run
 
+# Custom speaker labels (CLI override)
+python keromdizer.py /path/to/export/ --user-name Matt --assistant-name ChatGPT
+
+# Or set defaults in ~/.keromdizer.toml:
+# [user]
+# name = "Matt"
+# [providers.chatgpt]
+# assistant_name = "ChatGPT"
+
 # Tests
 pytest tests/ -v
 
@@ -53,6 +62,7 @@ keromdizer.py          ← CLI entrypoint (argparse, thin wiring layer only)
 | `renderer.py` | GFM markdown generation |
 | `file_manager.py` | File I/O, manifest, asset copying |
 | `models.py` | Dataclasses: `Message`, `Branch`, `Conversation` |
+| `config.py` | Persona config loading — reads `~/.keromdizer.toml`, resolves display names |
 | `conftest.py` | Adds project root to `sys.path` for pytest |
 | `tests/fixtures/sample_conversations.json` | Minimal test fixture (3 conversations) |
 | `output/manifest.json` | Tracks written files for deduplication (auto-generated) |
@@ -121,6 +131,23 @@ output/
 `FileManager` maintains `output/manifest.json` keyed by `conversation_id`. On each run it compares `update_time` — conversations are re-exported only if newer. This makes it safe to run against multiple export snapshots into the same output directory.
 
 `_used_filenames` is seeded from the manifest at startup to prevent cross-run filename collisions when two conversations share the same title.
+
+## Persona Config
+
+Speaker labels in rendered markdown can be customized via `~/.keromdizer.toml`:
+
+```toml
+[user]
+name = "Matt"
+
+[providers.chatgpt]
+assistant_name = "ChatGPT"
+
+[providers.deepseek]
+assistant_name = "DeepSeek"
+```
+
+Both sections are optional. CLI flags `--user-name` and `--assistant-name` override the file for a single run. Fallback chain: CLI flag → TOML file → provider default (ChatGPT/DeepSeek) → "User"/"Assistant".
 
 ## Filename Sanitization
 

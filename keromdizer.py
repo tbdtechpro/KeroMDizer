@@ -51,11 +51,15 @@ def main():
         print(f'Error: {e}', file=sys.stderr)
         sys.exit(1)
 
-    persona = load_persona(
-        provider='chatgpt',
-        user_name=args.user_name,
-        assistant_name=args.assistant_name,
-    )
+    try:
+        persona = load_persona(
+            provider='chatgpt',
+            user_name=args.user_name,
+            assistant_name=args.assistant_name,
+        )
+    except ValueError as e:
+        print(f'Error: {e}', file=sys.stderr)
+        sys.exit(1)
     renderer = MarkdownRenderer(persona)
     file_mgr = FileManager(args.output)
 
