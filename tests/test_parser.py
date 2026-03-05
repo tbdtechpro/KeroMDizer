@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+
+from conversation_parser import ConversationParser
 from models import Message, Branch, Conversation
 
 
@@ -35,9 +37,6 @@ def test_conversation_creation():
     assert conv.id == 'abc'
     assert len(conv.branches) == 1
     assert conv.branches[0].branch_index == 1
-
-
-from conversation_parser import ConversationParser
 
 
 def test_trace_to_root_simple(tmp_path):

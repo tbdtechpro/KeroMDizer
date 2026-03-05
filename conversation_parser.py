@@ -53,9 +53,7 @@ class ConversationParser:
             if not messages:
                 continue
 
-            is_main = bool(main_path_set & set(path)) and (
-                current_node in path or leaf_id == current_node
-            )
+            is_main = current_node in path
             branches.append((is_main, path_key, messages))
 
         if not branches:
