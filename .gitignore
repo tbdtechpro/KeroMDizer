@@ -1,0 +1,11 @@
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.venv/
+*.egg-info/
+dist/
+build/
+output/
+# ChatGPT export assets — real exports, not fixtures
+0bab8e77c5a63f18a71fbe7235e764bf/
