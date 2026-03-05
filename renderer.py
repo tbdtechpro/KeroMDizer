@@ -35,7 +35,7 @@ class MarkdownRenderer:
         return '\n'.join(lines)
 
     def _format_date(self, timestamp: float | None) -> str:
-        if not timestamp:
+        if timestamp is None:
             return 'unknown'
         dt = datetime.fromtimestamp(timestamp, tz=timezone.utc)
         return dt.strftime('%Y-%m-%d')
