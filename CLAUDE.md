@@ -148,7 +148,7 @@ The test fixture (`tests/fixtures/sample_conversations.json`) covers:
 
 ## Python Version
 
-Requires **Python 3.10+** — uses `X | Y` union type syntax and `list[str]` generics. Ubuntu 24.04 ships Python 3.12 by default. `bootstrap.sh` handles installation if needed.
+Requires **Python 3.11+** — uses `X | Y` union type syntax, `list[str]` generics, and `tomllib` (stdlib). Ubuntu 24.04 ships Python 3.12 by default. `bootstrap.sh` handles installation if needed.
 
 ## Future Extension Points
 
