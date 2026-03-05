@@ -1,0 +1,63 @@
+[
+  {
+    "id": "ds-single-001",
+    "title": "Single Branch Chat",
+    "inserted_at": "2025-01-30T06:00:00.000000+00:00",
+    "updated_at": "2025-01-30T06:10:00.000000+00:00",
+    "mapping": {
+      "root": {"id": "root", "parent": null, "children": ["n1"], "message": null},
+      "n1": {"id": "n1", "parent": "root", "children": ["n2"], "message": {"model": "deepseek-chat", "inserted_at": "2025-01-30T06:00:01.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "Hello DeepSeek"}]}},
+      "n2": {"id": "n2", "parent": "n1", "children": [], "message": {"model": "deepseek-chat", "inserted_at": "2025-01-30T06:00:02.000000+00:00", "files": [], "fragments": [{"type": "RESPONSE", "content": "Hello! How can I help?"}]}}
+    }
+  },
+  {
+    "id": "ds-branched-002",
+    "title": "Branched Chat",
+    "inserted_at": "2025-02-01T10:00:00.000000+00:00",
+    "updated_at": "2025-02-01T11:00:00.000000+00:00",
+    "mapping": {
+      "root": {"id": "root", "parent": null, "children": ["n1"], "message": null},
+      "n1": {"id": "n1", "parent": "root", "children": ["n2"], "message": {"model": "deepseek-chat", "inserted_at": "2025-02-01T10:00:01.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "Tell me about AI"}]}},
+      "n2": {"id": "n2", "parent": "n1", "children": ["n3", "n5"], "message": {"model": "deepseek-chat", "inserted_at": "2025-02-01T10:00:02.000000+00:00", "files": [], "fragments": [{"type": "RESPONSE", "content": "AI is fascinating"}]}},
+      "n3": {"id": "n3", "parent": "n2", "children": ["n4"], "message": {"model": "deepseek-chat", "inserted_at": "2025-02-01T10:30:00.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "More about AI (branch A)"}]}},
+      "n4": {"id": "n4", "parent": "n3", "children": [], "message": {"model": "deepseek-chat", "inserted_at": "2025-02-01T10:30:01.000000+00:00", "files": [], "fragments": [{"type": "RESPONSE", "content": "Branch A answer"}]}},
+      "n5": {"id": "n5", "parent": "n2", "children": ["n6"], "message": {"model": "deepseek-chat", "inserted_at": "2025-02-01T11:00:00.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "More about AI (branch B)"}]}},
+      "n6": {"id": "n6", "parent": "n5", "children": [], "message": {"model": "deepseek-chat", "inserted_at": "2025-02-01T11:00:01.000000+00:00", "files": [], "fragments": [{"type": "RESPONSE", "content": "Branch B answer (latest)"}]}}
+    }
+  },
+  {
+    "id": "ds-reasoner-003",
+    "title": "Reasoner Chat",
+    "inserted_at": "2025-03-01T09:00:00.000000+00:00",
+    "updated_at": "2025-03-01T09:05:00.000000+00:00",
+    "mapping": {
+      "root": {"id": "root", "parent": null, "children": ["n1"], "message": null},
+      "n1": {"id": "n1", "parent": "root", "children": ["n2"], "message": {"model": "deepseek-reasoner", "inserted_at": "2025-03-01T09:00:01.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "Solve this logic puzzle"}]}},
+      "n2": {"id": "n2", "parent": "n1", "children": [], "message": {"model": "deepseek-reasoner", "inserted_at": "2025-03-01T09:00:02.000000+00:00", "files": [], "fragments": [{"type": "THINK", "content": "Let me reason step by step..."}, {"type": "RESPONSE", "content": "The answer is 42."}]}}
+    }
+  },
+  {
+    "id": "ds-search-004",
+    "title": "Search Chat",
+    "inserted_at": "2025-03-02T09:00:00.000000+00:00",
+    "updated_at": "2025-03-02T09:05:00.000000+00:00",
+    "mapping": {
+      "root": {"id": "root", "parent": null, "children": ["n1"], "message": null},
+      "n1": {"id": "n1", "parent": "root", "children": ["n2"], "message": {"model": "deepseek-chat", "inserted_at": "2025-03-02T09:00:01.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "Search the web for AI news"}]}},
+      "n2": {"id": "n2", "parent": "n1", "children": ["n3"], "message": {"model": "deepseek-chat", "inserted_at": "2025-03-02T09:00:02.000000+00:00", "files": [], "fragments": [{"type": "SEARCH", "content": "AI news 2025"}]}},
+      "n3": {"id": "n3", "parent": "n2", "children": [], "message": {"model": "deepseek-chat", "inserted_at": "2025-03-02T09:00:03.000000+00:00", "files": [], "fragments": [{"type": "RESPONSE", "content": "Here are the latest AI developments."}]}}
+    }
+  },
+  {
+    "id": "ds-null-msg-005",
+    "title": "Null Message Chat",
+    "inserted_at": "2025-03-03T09:00:00.000000+00:00",
+    "updated_at": "2025-03-03T09:05:00.000000+00:00",
+    "mapping": {
+      "root": {"id": "root", "parent": null, "children": ["n1"], "message": null},
+      "n1": {"id": "n1", "parent": "root", "children": ["n2"], "message": null},
+      "n2": {"id": "n2", "parent": "n1", "children": ["n3"], "message": {"model": "deepseek-chat", "inserted_at": "2025-03-03T09:00:02.000000+00:00", "files": [], "fragments": [{"type": "REQUEST", "content": "Hello"}]}},
+      "n3": {"id": "n3", "parent": "n2", "children": [], "message": {"model": "deepseek-chat", "inserted_at": "2025-03-03T09:00:03.000000+00:00", "files": [], "fragments": [{"type": "RESPONSE", "content": "Hi there!"}]}}
+    }
+  }
+]
