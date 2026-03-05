@@ -2,6 +2,7 @@ import argparse
 import sys
 from pathlib import Path
 
+from config import load_persona
 from conversation_parser import ConversationParser
 from renderer import MarkdownRenderer
 from file_manager import FileManager
@@ -27,6 +28,16 @@ def main():
         action='store_true',
         help='Print what would be written without writing any files',
     )
+    arg_parser.add_argument(
+        '--user-name',
+        default=None,
+        help='Override user label in output (default: from ~/.keromdizer.toml or "User")',
+    )
+    arg_parser.add_argument(
+        '--assistant-name',
+        default=None,
+        help='Override assistant label in output (default: from ~/.keromdizer.toml or provider name)',
+    )
     args = arg_parser.parse_args()
 
     if not args.export_folder.is_dir():
@@ -40,7 +51,12 @@ def main():
         print(f'Error: {e}', file=sys.stderr)
         sys.exit(1)
 
-    renderer = MarkdownRenderer()
+    persona = load_persona(
+        provider='chatgpt',
+        user_name=args.user_name,
+        assistant_name=args.assistant_name,
+    )
+    renderer = MarkdownRenderer(persona)
     file_mgr = FileManager(args.output)
 
     written = 0
