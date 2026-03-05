@@ -1,4 +1,5 @@
 import json
+import sys
 from pathlib import Path
 from models import Conversation, Branch, Message
 
@@ -6,26 +7,53 @@ from models import Conversation, Branch, Message
 class ConversationParser:
     def __init__(self, export_folder: Path):
         self.export_folder = Path(export_folder)
-        self._conversations_file = self.export_folder / 'conversations.json'
+
+    def _load_raw_conversations(self) -> list[dict]:
+        """Load raw conversation dicts from conversations.json or paginated conversations-NNN.json files."""
+        single = self.export_folder / 'conversations.json'
+        if single.exists():
+            with open(single, encoding='utf-8') as f:
+                return json.load(f)
+
+        pages = sorted(self.export_folder.glob('conversations-*.json'))
+        if not pages:
+            raise FileNotFoundError(
+                f"No conversations.json or conversations-NNN.json files found in {self.export_folder}"
+            )
+        data = []
+        for page in pages:
+            with open(page, encoding='utf-8') as f:
+                data.extend(json.load(f))
+        return data
 
     def parse(self) -> list[Conversation]:
-        if not self._conversations_file.exists():
-            raise FileNotFoundError(
-                f"conversations.json not found in {self.export_folder}"
-            )
-        with open(self._conversations_file, encoding='utf-8') as f:
-            data = json.load(f)
+        data = self._load_raw_conversations()
 
+        shared_ids = self._load_shared_ids()
         conversations = []
         for raw in data:
             try:
                 conv = self._parse_conversation(raw)
                 if conv is not None:
+                    conv.is_shared = conv.id in shared_ids
                     conversations.append(conv)
             except Exception as e:
                 title = raw.get('title', 'unknown')
                 print(f"Warning: skipping conversation '{title}': {e}")
         return conversations
+
+    def _load_shared_ids(self) -> set[str]:
+        """Return set of conversation IDs from shared_conversations.json, or empty set if absent or malformed."""
+        path = self.export_folder / 'shared_conversations.json'
+        if not path.exists():
+            return set()
+        try:
+            with open(path, encoding='utf-8') as f:
+                data = json.load(f)
+        except json.JSONDecodeError as e:
+            print(f'Warning: could not parse shared_conversations.json: {e}', file=sys.stderr)
+            return set()
+        return {entry['conversation_id'] for entry in data if 'conversation_id' in entry}
 
     def _parse_conversation(self, raw: dict) -> Conversation | None:
         mapping = raw.get('mapping', {})
@@ -64,13 +92,21 @@ class ConversationParser:
             for i, (_, _, msgs) in enumerate(branches)
         ]
 
+        conv_id = raw.get('id') or raw.get('conversation_id', '')
+        if conv_id:
+            audio_dir = self.export_folder / conv_id / 'audio'
+            audio_count = len(list(audio_dir.glob('*.wav'))) if audio_dir.is_dir() else 0
+        else:
+            audio_count = 0
+
         return Conversation(
-            id=raw.get('id') or raw.get('conversation_id', ''),
+            id=conv_id,
             title=raw.get('title', 'Untitled'),
             create_time=raw.get('create_time'),
             update_time=raw.get('update_time'),
             model_slug=raw.get('default_model_slug'),
             branches=final_branches,
+            audio_count=audio_count,
         )
 
     def _find_leaf_ids(self, mapping: dict) -> list[str]:
@@ -123,7 +159,7 @@ class ConversationParser:
                 segments.append(part)
             elif isinstance(part, dict):
                 if part.get('content_type') == 'image_asset_pointer':
-                    file_id = part.get('asset_pointer', '').replace('sediment://', '')
+                    file_id = self._strip_asset_uri(part.get('asset_pointer', ''))
                     if file_id:
                         segments.append(f'![image](assets/{file_id})')
         return '\n\n'.join(segments)
@@ -132,7 +168,18 @@ class ConversationParser:
         refs = []
         for part in parts:
             if isinstance(part, dict) and part.get('content_type') == 'image_asset_pointer':
-                file_id = part.get('asset_pointer', '').replace('sediment://', '')
+                file_id = self._strip_asset_uri(part.get('asset_pointer', ''))
                 if file_id:
                     refs.append(file_id)
         return refs
+
+    def _strip_asset_uri(self, uri: str) -> str:
+        """Strip sediment:// or file-service:// URI prefix, returning bare file ID.
+
+        If uri has no recognised prefix it is returned unchanged — bare file IDs
+        (no scheme) are valid input.
+        """
+        for prefix in ('sediment://', 'file-service://'):
+            if uri.startswith(prefix):
+                return uri[len(prefix):]
+        return uri

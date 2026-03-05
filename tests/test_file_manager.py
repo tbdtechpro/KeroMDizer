@@ -64,3 +64,20 @@ def test_make_filename_collision_disambiguation(tmp_path):
     name2 = fm.make_filename(conv2, conv2.branches[0])
     assert name1 != name2
     assert 'id-aabb' in name2 or 'id-xxyy' in name2
+
+
+def test_copy_asset_finds_dalle_image(tmp_path):
+    """copy_asset should find files in dalle-generations/ subdirectory."""
+    export = tmp_path / 'export'
+    export.mkdir()
+    dalle_dir = export / 'dalle-generations'
+    dalle_dir.mkdir()
+    # DALL-E file lives in dalle-generations/, not in export root
+    fake_img = dalle_dir / 'file-AbCdEfGhIj-some-uuid.webp'
+    fake_img.write_bytes(b'fake webp data')
+
+    output = tmp_path / 'output'
+    fm = FileManager(output)
+    result = fm.copy_asset(export, 'file-AbCdEfGhIj')
+    assert result == 'file-AbCdEfGhIj-some-uuid.webp'
+    assert (output / 'assets' / 'file-AbCdEfGhIj-some-uuid.webp').exists()

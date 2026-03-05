@@ -70,16 +70,21 @@ class FileManager:
             entry['files'].append(filename)
 
     def copy_asset(self, export_folder: Path, file_id: str) -> str | None:
-        """Find file by prefix in export_folder, copy to assets/, return actual filename."""
-        matches = list(Path(export_folder).glob(f'{file_id}*'))
-        if not matches:
-            return None
-        src = matches[0]
-        self.assets_dir.mkdir(parents=True, exist_ok=True)
-        dst = self.assets_dir / src.name
-        if not dst.exists():
-            shutil.copy2(src, dst)
-        return src.name
+        """Find file by prefix in export_folder or dalle-generations/, copy to assets/, return filename."""
+        search_dirs = [
+            Path(export_folder),
+            Path(export_folder) / 'dalle-generations',
+        ]
+        for search_dir in search_dirs:
+            matches = list(search_dir.glob(f'{file_id}*'))
+            if matches:
+                src = matches[0]
+                self.assets_dir.mkdir(parents=True, exist_ok=True)
+                dst = self.assets_dir / src.name
+                if not dst.exists():
+                    shutil.copy2(src, dst)
+                return src.name
+        return None
 
     def _format_date(self, timestamp: float | None) -> str:
         if timestamp is None:

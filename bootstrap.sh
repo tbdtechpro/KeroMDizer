@@ -5,7 +5,7 @@
 set -euo pipefail
 
 VENV_DIR=".venv"
-MIN_PYTHON_MINOR=10  # Requires Python 3.10+
+MIN_PYTHON_MINOR=11  # Requires Python 3.11+
 
 # ── Colours ────────────────────────────────────────────────────────────────────
 RED='\033[0;31m'
@@ -33,9 +33,9 @@ if ! command -v apt-get &>/dev/null; then
     fail "apt-get not found. This script requires an Ubuntu/Debian system."
 fi
 
-# ── 3. Check Python 3.10+ ─────────────────────────────────────────────────────
+# ── 3. Check Python 3.11+ ─────────────────────────────────────────────────────
 PYTHON_BIN=""
-for candidate in python3.12 python3.11 python3.10 python3; do
+for candidate in python3.12 python3.11 python3; do
     if command -v "$candidate" &>/dev/null; then
         version=$("$candidate" -c 'import sys; print(sys.version_info.minor)')
         major=$("$candidate" -c 'import sys; print(sys.version_info.major)')
@@ -47,7 +47,7 @@ for candidate in python3.12 python3.11 python3.10 python3; do
 done
 
 if [[ -z "$PYTHON_BIN" ]]; then
-    info "Python 3.10+ not found — installing python3.12 via apt..."
+    info "Python 3.11+ not found — installing python3.12 via apt..."
     sudo apt-get update -qq
     sudo apt-get install -y python3.12
     PYTHON_BIN="python3.12"
