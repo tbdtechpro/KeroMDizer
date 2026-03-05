@@ -239,3 +239,94 @@ def test_extract_messages_handles_dalle_image(tmp_path):
     assert 'file-AbCdEfGhIj' in messages[0].text
     assert '![image](assets/file-AbCdEfGhIj)' in messages[0].text
     assert messages[0].image_refs == ['file-AbCdEfGhIj']
+
+
+def test_parse_marks_shared_conversation(tmp_path):
+    """Conversations listed in shared_conversations.json get is_shared=True."""
+    conv_data = [{
+        'id': 'conv-shared-1',
+        'title': 'Shared Chat',
+        'mapping': {
+            'a': {'id': 'a', 'parent': None, 'children': ['b'], 'message': None},
+            'b': {
+                'id': 'b', 'parent': 'a', 'children': [],
+                'message': {
+                    'author': {'role': 'user'},
+                    'content': {'content_type': 'text', 'parts': ['hello']},
+                    'create_time': None, 'metadata': {}
+                }
+            },
+        },
+        'current_node': 'b',
+        'create_time': 1700000000.0,
+        'update_time': 1700000100.0,
+        'default_model_slug': 'gpt-4o',
+    }]
+    export = _make_export(tmp_path, conv_data)
+    (export / 'shared_conversations.json').write_text(
+        json.dumps([{'conversation_id': 'conv-shared-1', 'id': 'share-abc', 'title': 'Shared Chat', 'is_anonymous': True}]),
+        encoding='utf-8',
+    )
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    assert convs[0].is_shared is True
+
+
+def test_parse_not_shared_when_absent(tmp_path):
+    """Conversations not in shared_conversations.json get is_shared=False."""
+    conv_data = [{
+        'id': 'conv-private-1',
+        'title': 'Private Chat',
+        'mapping': {
+            'a': {'id': 'a', 'parent': None, 'children': ['b'], 'message': None},
+            'b': {
+                'id': 'b', 'parent': 'a', 'children': [],
+                'message': {
+                    'author': {'role': 'user'},
+                    'content': {'content_type': 'text', 'parts': ['hello']},
+                    'create_time': None, 'metadata': {}
+                }
+            },
+        },
+        'current_node': 'b',
+        'create_time': 1700000000.0,
+        'update_time': 1700000100.0,
+        'default_model_slug': 'gpt-4o',
+    }]
+    export = _make_export(tmp_path, conv_data)
+    # No shared_conversations.json — should work fine, is_shared stays False
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    assert convs[0].is_shared is False
+
+
+def test_parse_counts_audio_recordings(tmp_path):
+    """Conversations with an audio/ subfolder get audio_count set."""
+    conv_id = 'conv-voice-1'
+    conv_data = [{
+        'id': conv_id,
+        'title': 'Voice Chat',
+        'mapping': {
+            'a': {'id': 'a', 'parent': None, 'children': ['b'], 'message': None},
+            'b': {
+                'id': 'b', 'parent': 'a', 'children': [],
+                'message': {
+                    'author': {'role': 'user'},
+                    'content': {'content_type': 'text', 'parts': ['hi']},
+                    'create_time': None, 'metadata': {}
+                }
+            },
+        },
+        'current_node': 'b',
+        'create_time': 1700000000.0,
+        'update_time': 1700000100.0,
+        'default_model_slug': 'gpt-4o',
+    }]
+    export = _make_export(tmp_path, conv_data)
+    audio_dir = export / conv_id / 'audio'
+    audio_dir.mkdir(parents=True)
+    (audio_dir / 'recording1.wav').write_bytes(b'')
+    (audio_dir / 'recording2.wav').write_bytes(b'')
+    parser = ConversationParser(export)
+    convs = parser.parse()
+    assert convs[0].audio_count == 2

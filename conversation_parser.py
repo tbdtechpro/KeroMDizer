@@ -16,16 +16,27 @@ class ConversationParser:
         with open(self._conversations_file, encoding='utf-8') as f:
             data = json.load(f)
 
+        shared_ids = self._load_shared_ids()
         conversations = []
         for raw in data:
             try:
                 conv = self._parse_conversation(raw)
                 if conv is not None:
+                    conv.is_shared = conv.id in shared_ids
                     conversations.append(conv)
             except Exception as e:
                 title = raw.get('title', 'unknown')
                 print(f"Warning: skipping conversation '{title}': {e}")
         return conversations
+
+    def _load_shared_ids(self) -> set[str]:
+        """Return set of conversation IDs from shared_conversations.json, or empty set if absent."""
+        path = self.export_folder / 'shared_conversations.json'
+        if not path.exists():
+            return set()
+        with open(path, encoding='utf-8') as f:
+            data = json.load(f)
+        return {entry['conversation_id'] for entry in data if 'conversation_id' in entry}
 
     def _parse_conversation(self, raw: dict) -> Conversation | None:
         mapping = raw.get('mapping', {})
@@ -64,13 +75,18 @@ class ConversationParser:
             for i, (_, _, msgs) in enumerate(branches)
         ]
 
+        conv_id = raw.get('id') or raw.get('conversation_id', '')
+        audio_dir = self.export_folder / conv_id / 'audio'
+        audio_count = len(list(audio_dir.glob('*.wav'))) if audio_dir.is_dir() else 0
+
         return Conversation(
-            id=raw.get('id') or raw.get('conversation_id', ''),
+            id=conv_id,
             title=raw.get('title', 'Untitled'),
             create_time=raw.get('create_time'),
             update_time=raw.get('update_time'),
             model_slug=raw.get('default_model_slug'),
             branches=final_branches,
+            audio_count=audio_count,
         )
 
     def _find_leaf_ids(self, mapping: dict) -> list[str]:
