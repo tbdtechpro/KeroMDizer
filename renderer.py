@@ -21,7 +21,8 @@ class MarkdownRenderer:
         if conversation.is_shared:
             lines.append('| Shared | Yes |')
         if conversation.audio_count > 0:
-            lines.append(f'| Audio | {conversation.audio_count} recordings |')
+            label = 'recording' if conversation.audio_count == 1 else 'recordings'
+            lines.append(f'| Audio | {conversation.audio_count} {label} |')
         lines.append('')
 
         # Title

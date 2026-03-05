@@ -116,6 +116,14 @@ def test_render_audio_count():
     assert '| Audio | 5 recordings |' in md
 
 
+def test_render_audio_count_singular():
+    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
+    conv.audio_count = 1
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '| Audio | 1 recording |' in md
+
+
 def test_render_no_audio_row_when_zero():
     conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
     # audio_count defaults to 0
