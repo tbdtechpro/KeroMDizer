@@ -91,3 +91,11 @@ def test_load_persona_empty_string_assistant_name_falls_back(monkeypatch, tmp_pa
     monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
     persona = config.load_persona(assistant_name='')
     assert persona.assistant_name == 'ChatGPT'
+
+
+def test_load_persona_malformed_toml_raises_value_error(monkeypatch, tmp_path):
+    cfg = tmp_path / 'bad.toml'
+    cfg.write_text('not valid toml [[[[', encoding='utf-8')
+    monkeypatch.setattr(config, 'CONFIG_PATH', cfg)
+    with pytest.raises(ValueError, match='Error parsing'):
+        config.load_persona()
