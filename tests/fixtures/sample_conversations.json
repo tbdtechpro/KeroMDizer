@@ -1,0 +1,161 @@
+[
+  {
+    "id": "conv-001",
+    "conversation_id": "conv-001",
+    "title": "Test: Python Basics",
+    "create_time": 1700000000.0,
+    "update_time": 1700000100.0,
+    "default_model_slug": "gpt-4o",
+    "current_node": "node-d",
+    "mapping": {
+      "node-a": {
+        "id": "node-a",
+        "parent": null,
+        "children": ["node-b"],
+        "message": {
+          "id": "node-a",
+          "author": {"role": "system"},
+          "content": {"content_type": "text", "parts": ["You are a helpful assistant."]},
+          "create_time": 1700000000.0,
+          "metadata": {}
+        }
+      },
+      "node-b": {
+        "id": "node-b",
+        "parent": "node-a",
+        "children": ["node-c", "node-e"],
+        "message": {
+          "id": "node-b",
+          "author": {"role": "user"},
+          "content": {"content_type": "text", "parts": ["How do I print hello world in Python?"]},
+          "create_time": 1700000010.0,
+          "metadata": {}
+        }
+      },
+      "node-c": {
+        "id": "node-c",
+        "parent": "node-b",
+        "children": ["node-d"],
+        "message": {
+          "id": "node-c",
+          "author": {"role": "assistant"},
+          "content": {"content_type": "text", "parts": ["Use the print function:\n\n```python\nprint('Hello, World!')\n```"]},
+          "create_time": 1700000020.0,
+          "metadata": {}
+        }
+      },
+      "node-d": {
+        "id": "node-d",
+        "parent": "node-c",
+        "children": [],
+        "message": {
+          "id": "node-d",
+          "author": {"role": "user"},
+          "content": {"content_type": "text", "parts": ["Thanks! What about printing a variable?"]},
+          "create_time": 1700000030.0,
+          "metadata": {}
+        }
+      },
+      "node-e": {
+        "id": "node-e",
+        "parent": "node-b",
+        "children": [],
+        "message": {
+          "id": "node-e",
+          "author": {"role": "assistant"},
+          "content": {"content_type": "text", "parts": ["Simply use: `print('Hello, World!')`"]},
+          "create_time": 1700000020.0,
+          "metadata": {}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-002",
+    "conversation_id": "conv-002",
+    "title": "Test: With Image",
+    "create_time": 1700001000.0,
+    "update_time": 1700001100.0,
+    "default_model_slug": "gpt-4o",
+    "current_node": "img-c",
+    "mapping": {
+      "img-a": {
+        "id": "img-a",
+        "parent": null,
+        "children": ["img-b"],
+        "message": {
+          "id": "img-a",
+          "author": {"role": "system"},
+          "content": {"content_type": "text", "parts": [""]},
+          "create_time": 1700001000.0,
+          "metadata": {}
+        }
+      },
+      "img-b": {
+        "id": "img-b",
+        "parent": "img-a",
+        "children": ["img-c"],
+        "message": {
+          "id": "img-b",
+          "author": {"role": "user"},
+          "content": {
+            "content_type": "multimodal_text",
+            "parts": [
+              "What is in this image?",
+              {
+                "content_type": "image_asset_pointer",
+                "asset_pointer": "sediment://file_abc123",
+                "size_bytes": 12345,
+                "width": 800,
+                "height": 600
+              }
+            ]
+          },
+          "create_time": 1700001010.0,
+          "metadata": {}
+        }
+      },
+      "img-c": {
+        "id": "img-c",
+        "parent": "img-b",
+        "children": [],
+        "message": {
+          "id": "img-c",
+          "author": {"role": "assistant"},
+          "content": {"content_type": "text", "parts": ["The image shows a cat sitting on a windowsill."]},
+          "create_time": 1700001020.0,
+          "metadata": {}
+        }
+      }
+    }
+  },
+  {
+    "id": "conv-003",
+    "conversation_id": "conv-003",
+    "title": "Test: Empty (no user messages)",
+    "create_time": 1700002000.0,
+    "update_time": 1700002000.0,
+    "default_model_slug": "gpt-4o",
+    "current_node": "empty-b",
+    "mapping": {
+      "empty-a": {
+        "id": "empty-a",
+        "parent": null,
+        "children": ["empty-b"],
+        "message": {
+          "id": "empty-a",
+          "author": {"role": "system"},
+          "content": {"content_type": "text", "parts": [""]},
+          "create_time": 1700002000.0,
+          "metadata": {}
+        }
+      },
+      "empty-b": {
+        "id": "empty-b",
+        "parent": "empty-a",
+        "children": [],
+        "message": null
+      }
+    }
+  }
+]
