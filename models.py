@@ -24,3 +24,5 @@ class Conversation:
     update_time: Optional[float]
     model_slug: Optional[str]
     branches: list[Branch]
+    is_shared: bool = False
+    audio_count: int = 0
