@@ -33,7 +33,7 @@ if ! command -v apt-get &>/dev/null; then
     fail "apt-get not found. This script requires an Ubuntu/Debian system."
 fi
 
-# ── 3. Check Python 3.10+ ─────────────────────────────────────────────────────
+# ── 3. Check Python 3.11+ ─────────────────────────────────────────────────────
 PYTHON_BIN=""
 for candidate in python3.12 python3.11 python3; do
     if command -v "$candidate" &>/dev/null; then
