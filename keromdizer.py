@@ -60,7 +60,7 @@ def main():
                     if actual_name:
                         resolved[file_id] = actual_name
                     else:
-                        print(f'Warning: image not found in export: {file_id}')
+                        print(f'Warning: image not found in export: {file_id}', file=sys.stderr)
                 for old_id, new_name in resolved.items():
                     msg.text = msg.text.replace(
                         f'assets/{old_id})', f'assets/{new_name})'

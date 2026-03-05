@@ -34,7 +34,7 @@ class FileManager:
         return (conversation.update_time or 0) > entry.get('update_time', 0)
 
     def sanitize_filename(self, title: str) -> str:
-        title = title or 'Untitled'
+        title = (title or '').strip() or 'Untitled'
         safe = re.sub(r'[<>:"/\\|?*\x00-\x1f·•\u2019\u2018]', '_', title)
         safe = re.sub(r'[\s_]+', '_', safe)
         safe = safe.strip('_')
