@@ -24,19 +24,16 @@ def load_persona(
       3. Provider default from PROVIDER_DEFAULTS
       4. 'User' / 'Assistant' (absolute fallback)
     """
-    data: dict = {}
+    data: dict[str, object] = {}
     if CONFIG_PATH.exists():
         with open(CONFIG_PATH, 'rb') as f:
             data = tomllib.load(f)
 
-    resolved_user = (
-        user_name
-        or data.get('user', {}).get('name')
-        or 'User'
+    resolved_user = user_name if user_name is not None else (
+        data.get('user', {}).get('name') or 'User'
     )
-    resolved_assistant = (
-        assistant_name
-        or data.get('providers', {}).get(provider, {}).get('assistant_name')
+    resolved_assistant = assistant_name if assistant_name is not None else (
+        data.get('providers', {}).get(provider, {}).get('assistant_name')
         or PROVIDER_DEFAULTS.get(provider, 'Assistant')
     )
     return PersonaConfig(user_name=resolved_user, assistant_name=resolved_assistant)
