@@ -1,8 +1,11 @@
 from datetime import datetime, timezone
-from models import Conversation, Branch
+from models import Conversation, Branch, PersonaConfig
 
 
 class MarkdownRenderer:
+    def __init__(self, persona: PersonaConfig | None = None):
+        self.persona = persona or PersonaConfig()
+
     def render(self, conversation: Conversation, branch: Branch) -> str:
         lines = []
 
@@ -32,7 +35,7 @@ class MarkdownRenderer:
         for msg in branch.messages:
             lines.append('---')
             lines.append('')
-            header = '### 👤 User' if msg.role == 'user' else '### 🤖 Assistant'
+            header = f'### 👤 {self.persona.user_name}' if msg.role == 'user' else f'### 🤖 {self.persona.assistant_name}'
             lines += [header, '', msg.text, '']
 
         lines += ['---', '']

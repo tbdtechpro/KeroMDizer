@@ -130,3 +130,48 @@ def test_render_no_audio_row_when_zero():
     r = MarkdownRenderer()
     md = r.render(conv, conv.branches[0])
     assert '| Audio |' not in md
+
+
+def test_render_default_persona_user_label():
+    msg = Message(role='user', text='hi')
+    conv = _make_conv([_make_branch([msg])])
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '### 👤 User' in md
+
+
+def test_render_default_persona_assistant_label():
+    msg = Message(role='assistant', text='hello')
+    conv = _make_conv([_make_branch([msg])])
+    r = MarkdownRenderer()
+    md = r.render(conv, conv.branches[0])
+    assert '### 🤖 Assistant' in md
+
+
+def test_render_custom_user_name():
+    from models import PersonaConfig
+    msg = Message(role='user', text='hi')
+    conv = _make_conv([_make_branch([msg])])
+    r = MarkdownRenderer(persona=PersonaConfig(user_name='Matt', assistant_name='Assistant'))
+    md = r.render(conv, conv.branches[0])
+    assert '### 👤 Matt' in md
+    assert '### 👤 User' not in md
+
+
+def test_render_custom_assistant_name():
+    from models import PersonaConfig
+    msg = Message(role='assistant', text='hello')
+    conv = _make_conv([_make_branch([msg])])
+    r = MarkdownRenderer(persona=PersonaConfig(user_name='User', assistant_name='ChatGPT'))
+    md = r.render(conv, conv.branches[0])
+    assert '### 🤖 ChatGPT' in md
+    assert '### 🤖 Assistant' not in md
+
+
+def test_render_none_persona_uses_defaults():
+    from models import PersonaConfig
+    msg = Message(role='user', text='hi')
+    conv = _make_conv([_make_branch([msg])])
+    r = MarkdownRenderer(persona=None)
+    md = r.render(conv, conv.branches[0])
+    assert '### 👤 User' in md
