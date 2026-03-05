@@ -26,3 +26,9 @@ class Conversation:
     branches: list[Branch]
     is_shared: bool = False
     audio_count: int = 0
+
+
+@dataclass
+class PersonaConfig:
+    user_name: str = 'User'
+    assistant_name: str = 'Assistant'
