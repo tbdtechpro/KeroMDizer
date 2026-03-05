@@ -37,8 +37,6 @@ class ConversationParser:
 
         # Trace main branch first (contains current_node)
         main_path = self._trace_to_root(mapping, current_node) if current_node else []
-        main_path_set = set(main_path)
-
         branches = []
         seen_paths = set()
 
@@ -126,8 +124,9 @@ class ConversationParser:
             elif isinstance(part, dict):
                 if part.get('content_type') == 'image_asset_pointer':
                     file_id = part.get('asset_pointer', '').replace('sediment://', '')
-                    segments.append(f'![image](assets/{file_id})')
-        return '\n'.join(segments)
+                    if file_id:
+                        segments.append(f'![image](assets/{file_id})')
+        return '\n\n'.join(segments)
 
     def _extract_image_refs(self, parts: list) -> list[str]:
         refs = []
