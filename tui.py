@@ -344,7 +344,25 @@ class AppModel(tea.Model):
             self.screen = Screen.CONFIRM
             _cmd_scan(self.cf_folder, self.cf_provider, self._program)
         return self, None
-    def _key_confirm(self, msg):         return self, None
+    def _key_confirm(self, msg):
+        if isinstance(msg, _ConvCountMsg):
+            self.cf_conv_count = msg.count
+            self.cf_scanning = False
+            return self, None
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+        if key == 'escape':
+            self.screen = Screen.PROVIDER_SELECT
+        elif key in ('enter', 'r') and not self.cf_scanning:
+            self.run_total   = self.cf_conv_count or 0
+            self.run_written = 0
+            self.run_skipped = 0
+            self.run_done    = False
+            self.run_error   = ''
+            self.screen = Screen.RUN
+            _cmd_run(self.cf_folder, self.cf_provider, self.st_values, self._program)
+        return self, None
     def _key_run(self, msg):             return self, None
     def _key_settings(self, msg):        return self, None
     def _key_review(self, msg):          return self, None
@@ -405,7 +423,19 @@ class AppModel(tea.Model):
                 lines.append(muted_style.render(f'     {opt}'))
         lines += ['', self._footer('← → cycle   enter confirm   esc back')]
         return self._panel('\n'.join(lines))
-    def _view_confirm(self):         return self._panel('Confirm')
+    def _view_confirm(self) -> str:
+        lines = [self._header('Confirm'), '']
+        lines.append(f'  Folder:    {self.cf_folder}')
+        lines.append(f'  Provider:  {self.cf_provider}')
+        lines.append(f'  Output:    {self.st_values.get("output_dir", "./output")}')
+        lines.append('')
+        if self.cf_scanning:
+            lines.append(muted_style.render('  Scanning conversations...'))
+        else:
+            count = self.cf_conv_count or 0
+            lines.append(success_style.render(f'  {count} conversation(s) found'))
+        lines += ['', self._footer('enter / r  run   esc back')]
+        return self._panel('\n'.join(lines))
     def _view_run(self):             return self._panel('Run')
     def _view_settings(self):        return self._panel('Settings')
     def _view_review(self):          return self._panel('Review')
@@ -440,6 +470,11 @@ def _cmd_scan(folder: Path, provider: str, program: Optional['tea.Program']) -> 
             if program:
                 program.send(_ConvCountMsg(count=0))
     threading.Thread(target=_run, daemon=True).start()
+
+
+def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['tea.Program']) -> None:
+    """Stub: start background thread to run the export. Implemented in Task 7."""
+    pass
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────

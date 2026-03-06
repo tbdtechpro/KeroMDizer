@@ -1,5 +1,5 @@
 # tests/test_tui.py
-from tui import AppModel, Screen, _ClipboardMsg
+from tui import AppModel, Screen, _ClipboardMsg, _ConvCountMsg
 import bubbletea as tea
 
 
@@ -274,3 +274,55 @@ def test_ps_esc_returns_to_folder_browser(tmp_path):
     m = _make_ps_model(tmp_path)
     m, _ = m.update(tea.KeyMsg(key='escape'))
     assert m.screen == Screen.FOLDER_BROWSER
+
+
+def _make_cf_model(tmp_path) -> AppModel:
+    m = AppModel()
+    m.screen = Screen.CONFIRM
+    m.width, m.height = 80, 24
+    m.cf_folder = tmp_path
+    m.cf_provider = 'chatgpt'
+    m.cf_conv_count = None
+    m.cf_scanning = True
+    return m
+
+
+def test_cf_view_shows_scanning_while_none(tmp_path):
+    m = _make_cf_model(tmp_path)
+    assert 'Scanning' in _strip(m.view())
+
+
+def test_cf_conv_count_msg_updates_count(tmp_path):
+    m = _make_cf_model(tmp_path)
+    m, _ = m.update(_ConvCountMsg(count=42))
+    assert m.cf_conv_count == 42
+    assert m.cf_scanning is False
+
+
+def test_cf_view_shows_count_after_scan(tmp_path):
+    m = _make_cf_model(tmp_path)
+    m.cf_conv_count = 42
+    m.cf_scanning = False
+    assert '42' in _strip(m.view())
+
+
+def test_cf_enter_advances_to_run(tmp_path):
+    m = _make_cf_model(tmp_path)
+    m.cf_conv_count = 10
+    m.cf_scanning = False
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.RUN
+
+
+def test_cf_r_also_advances_to_run(tmp_path):
+    m = _make_cf_model(tmp_path)
+    m.cf_conv_count = 5
+    m.cf_scanning = False
+    m, _ = m.update(tea.KeyMsg(key='r'))
+    assert m.screen == Screen.RUN
+
+
+def test_cf_esc_returns_to_provider_select(tmp_path):
+    m = _make_cf_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.PROVIDER_SELECT
