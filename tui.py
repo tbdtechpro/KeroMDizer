@@ -424,7 +424,11 @@ class AppModel(tea.Model):
 
 # ── Background commands ────────────────────────────────────────────────────────
 def _cmd_scan(folder: Path, provider: str, program: Optional['tea.Program']) -> None:
-    """Parse conversations in background and send _ConvCountMsg."""
+    """Start background thread to parse conversations and send _ConvCountMsg.
+
+    Uses daemon thread + program.send() pattern for background work.
+    Not a tea.Cmd — spawns thread directly as a side effect.
+    """
     def _run():
         try:
             from parser_factory import build_parser
