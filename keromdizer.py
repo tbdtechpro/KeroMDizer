@@ -10,12 +10,12 @@ from file_manager import FileManager
 
 def main():
     arg_parser = argparse.ArgumentParser(
-        description='Convert a ChatGPT data export folder to GFM markdown files.'
+        description='Convert a ChatGPT or DeepSeek export folder to GFM markdown files.'
     )
     arg_parser.add_argument(
         'export_folder',
         type=Path,
-        help='Path to the ChatGPT export directory (must contain conversations.json)',
+        help='Path to the export directory (must contain conversations.json)',
     )
     arg_parser.add_argument(
         '--output',

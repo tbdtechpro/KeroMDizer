@@ -80,7 +80,7 @@ class DeepSeekParser(ConversationParser):
 
         return Conversation(
             id=conv_id,
-            title=raw.get('title', 'Untitled'),
+            title=(raw.get('title') or '').strip() or 'Untitled',
             create_time=self._parse_iso_timestamp_safe(raw.get('inserted_at')),
             update_time=self._parse_iso_timestamp_safe(raw.get('updated_at')),
             model_slug=model_slug,
