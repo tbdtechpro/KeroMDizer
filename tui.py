@@ -382,7 +382,36 @@ class AppModel(tea.Model):
             if self.run_done and msg.key in ('enter', 'q'):
                 self.screen = Screen.MAIN
         return self, None
-    def _key_settings(self, msg):        return self, None
+    def _key_settings(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+        n_fields = len(self.st_fields)  # 3 text fields
+
+        if key == 'escape':
+            self.screen = Screen.MAIN
+        elif key == 'tab':
+            self.st_cursor = (self.st_cursor + 1) % (n_fields + 1)
+        elif key == 'shift+tab':
+            self.st_cursor = (self.st_cursor - 1) % (n_fields + 1)
+        elif key == 'enter' and self.st_cursor == n_fields:
+            # Save button
+            try:
+                _save_settings(self.st_values)
+                self.st_status = 'ok:Settings saved'
+            except Exception as e:
+                self.st_status = f'error:{e}'
+        elif self.st_cursor < n_fields:
+            field_key = self.st_fields[self.st_cursor]
+            current = self.st_values.get(field_key, '')
+            if key == 'backspace':
+                self.st_values[field_key] = current[:-1]
+            elif key == 'ctrl+u':
+                self.st_values[field_key] = ''
+            elif len(key) == 1:
+                self.st_values[field_key] = current + key
+            self.st_status = ''
+        return self, None
     def _key_review(self, msg):          return self, None
 
     def _view_main(self) -> str:
@@ -471,7 +500,32 @@ class AppModel(tea.Model):
             lines.append('')
             lines.append(muted_style.render('  Converting…'))
         return self._panel('\n'.join(lines))
-    def _view_settings(self):        return self._panel('Settings')
+    def _view_settings(self) -> str:
+        lines = [self._header('Settings'), '']
+        n_fields = len(self.st_fields)
+
+        for i, fk in enumerate(self.st_fields):
+            label = self.st_labels[fk]
+            value = self.st_values.get(fk, '')
+            focused = (i == self.st_cursor)
+            label_s = sel_style.render(label) if focused else muted_style.render(label)
+            val_display = f'{value}\u2588' if focused else value or muted_style.render('(default)')
+            lines.append(f'  {label_s}')
+            lines.append(f'  {val_display}')
+            lines.append('')
+
+        # Save button
+        btn_focused = (self.st_cursor == n_fields)
+        btn = sel_style.render('[ Save to ~/.keromdizer.toml ]') if btn_focused else muted_style.render('[ Save to ~/.keromdizer.toml ]')
+        lines.append(f'  {btn}')
+
+        if self.st_status:
+            prefix, _, rest = self.st_status.partition(':')
+            s = success_style.render(rest) if prefix == 'ok' else error_style.render(rest)
+            lines += ['', f'  {s}']
+
+        lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
+        return self._panel('\n'.join(lines))
     def _view_review(self):          return self._panel('Review')
 
     def _fb_refresh(self) -> None:

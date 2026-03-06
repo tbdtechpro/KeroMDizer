@@ -402,3 +402,79 @@ def test_run_view_shows_error():
     m.run_error = 'disk full'
     m.run_done = True
     assert 'disk full' in _strip(m.view())
+
+
+# ── SETTINGS screen ────────────────────────────────────────────────────────────
+
+def _make_st_model() -> AppModel:
+    m = AppModel()
+    m.screen = Screen.SETTINGS
+    m.width, m.height = 80, 24
+    m.st_cursor = 0
+    m.st_values = {'output_dir': './output', 'user_name': '', 'assistant_name': ''}
+    m.st_status = ''
+    return m
+
+
+def test_st_view_shows_field_labels():
+    m = _make_st_model()
+    v = _strip(m.view())
+    assert 'Output directory' in v
+    assert 'User name' in v
+    assert 'Assistant name' in v
+
+
+def test_st_tab_moves_to_next_field():
+    m = _make_st_model()
+    m.st_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='tab'))
+    assert m.st_cursor == 1
+
+
+def test_st_shift_tab_moves_to_prev_field():
+    m = _make_st_model()
+    m.st_cursor = 1
+    m, _ = m.update(tea.KeyMsg(key='shift+tab'))
+    assert m.st_cursor == 0
+
+
+def test_st_tab_wraps_to_save_button():
+    m = _make_st_model()
+    m.st_cursor = 2  # last text field
+    m, _ = m.update(tea.KeyMsg(key='tab'))
+    assert m.st_cursor == 3  # Save button
+
+
+def test_st_typing_updates_focused_field():
+    m = _make_st_model()
+    m.st_cursor = 1  # user_name
+    m, _ = m.update(tea.KeyMsg(key='M'))
+    m, _ = m.update(tea.KeyMsg(key='a'))
+    m, _ = m.update(tea.KeyMsg(key='t'))
+    m, _ = m.update(tea.KeyMsg(key='t'))
+    assert m.st_values['user_name'] == 'Matt'
+
+
+def test_st_backspace_deletes_from_focused_field():
+    m = _make_st_model()
+    m.st_cursor = 0
+    m.st_values['output_dir'] = './output'
+    m, _ = m.update(tea.KeyMsg(key='backspace'))
+    assert m.st_values['output_dir'] == './outpu'
+
+
+def test_st_save_button_enter_writes_toml(tmp_path, monkeypatch):
+    saved = {}
+    monkeypatch.setattr('tui._save_settings', lambda v: saved.update(v))
+    m = _make_st_model()
+    m.st_cursor = 3  # Save button
+    m.st_values['user_name'] = 'Matt'
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert saved.get('user_name') == 'Matt'
+    assert 'ok' in m.st_status
+
+
+def test_st_esc_returns_to_main():
+    m = _make_st_model()
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN
