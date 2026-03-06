@@ -25,24 +25,23 @@ def test_render_contains_title():
     assert '# My Test Chat' in md
 
 
-def test_render_metadata_table_single_branch():
+def test_render_subheading_single_branch():
     conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
     r = MarkdownRenderer()
     md = r.render(conv, conv.branches[0])
-    assert '| Date | 2023-11-14 |' in md
-    assert '| Model | gpt-4o |' in md
-    assert '| Conversation ID | test-id-001 |' in md
-    # No Branch row for single-branch conversations
-    assert '| Branch |' not in md
+    assert '_2023-11-14  ·  gpt-4o_' in md
+    # No table, no branch label for single-branch conversations
+    assert '| Field |' not in md
+    assert 'Branch' not in md
 
 
-def test_render_metadata_table_multi_branch():
+def test_render_subheading_multi_branch():
     branch1 = _make_branch([Message(role='user', text='hi')], index=1)
     branch2 = _make_branch([Message(role='assistant', text='hello')], index=2)
     conv = _make_conv([branch1, branch2])
     r = MarkdownRenderer()
     md = r.render(conv, branch1)
-    assert '| Branch | 1 of 2 |' in md
+    assert 'Branch 1 of 2' in md
 
 
 def test_render_user_message():
@@ -85,51 +84,14 @@ def test_render_messages_separated_by_hr():
     assert md.count('\n---\n') >= 2
 
 
-def test_render_unknown_model():
+def test_render_unknown_model_omitted_from_subheading():
     conv = _make_conv([_make_branch([Message(role='user', text='hi')])], model=None)
     r = MarkdownRenderer()
     md = r.render(conv, conv.branches[0])
-    assert '| Model | unknown |' in md
-
-
-def test_render_shared_flag():
-    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
-    conv.is_shared = True
-    r = MarkdownRenderer()
-    md = r.render(conv, conv.branches[0])
-    assert '| Shared | Yes |' in md
-
-
-def test_render_no_shared_flag_when_false():
-    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
-    # is_shared defaults to False
-    r = MarkdownRenderer()
-    md = r.render(conv, conv.branches[0])
-    assert '| Shared |' not in md
-
-
-def test_render_audio_count():
-    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
-    conv.audio_count = 5
-    r = MarkdownRenderer()
-    md = r.render(conv, conv.branches[0])
-    assert '| Audio | 5 recordings |' in md
-
-
-def test_render_audio_count_singular():
-    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
-    conv.audio_count = 1
-    r = MarkdownRenderer()
-    md = r.render(conv, conv.branches[0])
-    assert '| Audio | 1 recording |' in md
-
-
-def test_render_no_audio_row_when_zero():
-    conv = _make_conv([_make_branch([Message(role='user', text='hi')])])
-    # audio_count defaults to 0
-    r = MarkdownRenderer()
-    md = r.render(conv, conv.branches[0])
-    assert '| Audio |' not in md
+    # Date still appears, model part absent when None
+    assert '2023-11-14' in md
+    assert 'unknown' not in md
+    assert '| Model |' not in md
 
 
 def test_render_default_persona_user_label():

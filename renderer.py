@@ -9,27 +9,17 @@ class MarkdownRenderer:
     def render(self, conversation: Conversation, branch: Branch) -> str:
         lines = []
 
-        # Metadata table
-        date_str = self._format_date(conversation.create_time)
-        total_branches = len(conversation.branches)
-        lines += [
-            '| Field | Value |',
-            '|---|---|',
-            f'| Date | {date_str} |',
-            f'| Model | {conversation.model_slug or "unknown"} |',
-            f'| Conversation ID | {conversation.id} |',
-        ]
-        if total_branches > 1:
-            lines.append(f'| Branch | {branch.branch_index} of {total_branches} |')
-        if conversation.is_shared:
-            lines.append('| Shared | Yes |')
-        if conversation.audio_count > 0:
-            label = 'recording' if conversation.audio_count == 1 else 'recordings'
-            lines.append(f'| Audio | {conversation.audio_count} {label} |')
-        lines.append('')
-
         # Title
         lines += [f'# {conversation.title}', '']
+
+        # Subheading: date [· model] [· Branch N of M]
+        date_str = self._format_date(conversation.create_time)
+        parts = [date_str]
+        if conversation.model_slug:
+            parts.append(conversation.model_slug)
+        if len(conversation.branches) > 1:
+            parts.append(f'Branch {branch.branch_index} of {len(conversation.branches)}')
+        lines += [f'_{"  ·  ".join(parts)}_', '']
 
         # Messages
         for msg in branch.messages:
