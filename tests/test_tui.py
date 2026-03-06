@@ -492,3 +492,33 @@ def test_st_esc_returns_to_main():
     m = _make_st_model()
     m, _ = m.update(tea.KeyMsg(key='escape'))
     assert m.screen == Screen.MAIN
+
+
+# ── REVIEW screen ──────────────────────────────────────────────────────────────
+
+def test_review_view_shows_placeholder():
+    m = AppModel()
+    m.screen = Screen.REVIEW
+    m.width, m.height = 80, 24
+    v = _strip(m.view())
+    assert 'Coming soon' in v or 'tagging' in v.lower()
+
+
+def test_review_esc_returns_to_main():
+    m = AppModel()
+    m.screen = Screen.REVIEW
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN
+
+
+def test_tui_main_importable():
+    """main() exists and is callable without running the program."""
+    from tui import main
+    assert callable(main)
+
+
+def test_appmodel_window_size_msg_updates_dimensions():
+    m = AppModel()
+    m, _ = m.update(tea.WindowSizeMsg(width=120, height=40))
+    assert m.width == 120
+    assert m.height == 40

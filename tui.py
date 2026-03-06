@@ -412,7 +412,10 @@ class AppModel(tea.Model):
                 self.st_values[field_key] = current + key
             self.st_status = ''
         return self, None
-    def _key_review(self, msg):          return self, None
+    def _key_review(self, msg):
+        if isinstance(msg, tea.KeyMsg) and msg.key == 'escape':
+            self.screen = Screen.MAIN
+        return self, None
 
     def _view_main(self) -> str:
         lines = [self._header(), '']
@@ -526,7 +529,18 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
         return self._panel('\n'.join(lines))
-    def _view_review(self):          return self._panel('Review')
+    def _view_review(self) -> str:
+        lines = [
+            self._header('Review'),
+            '',
+            '  Coming soon',
+            '',
+            muted_style.render('  Conversation tagging will be available here'),
+            muted_style.render('  once JSONL export (#20) is implemented.'),
+            '',
+            self._footer('esc back'),
+        ]
+        return self._panel('\n'.join(lines))
 
     def _fb_refresh(self) -> None:
         """Populate fb_entries from fb_dir."""
