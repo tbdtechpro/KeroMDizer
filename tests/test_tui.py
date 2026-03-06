@@ -1,5 +1,5 @@
 # tests/test_tui.py
-from tui import AppModel, Screen
+from tui import AppModel, Screen, _ClipboardMsg
 import bubbletea as tea
 
 
@@ -167,3 +167,57 @@ def test_fb_esc_returns_to_main(tmp_path):
 def test_fb_view_shows_current_dir(tmp_path):
     m = _make_fb_model(tmp_path)
     assert str(tmp_path) in _strip(m.view())
+
+
+def test_fb_slash_activates_text_mode(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='/'))
+    assert m.fb_text_mode is True
+
+
+def test_fb_text_mode_typing_builds_input(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m.fb_text_mode = True
+    for ch in 'abc':
+        m, _ = m.update(tea.KeyMsg(key=ch))
+    assert m.fb_text_input == 'abc'
+
+
+def test_fb_text_mode_backspace_deletes(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m.fb_text_mode = True
+    m.fb_text_input = 'ab'
+    m, _ = m.update(tea.KeyMsg(key='backspace'))
+    assert m.fb_text_input == 'a'
+
+
+def test_fb_text_mode_esc_returns_to_browse(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m.fb_text_mode = True
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.fb_text_mode is False
+
+
+def test_fb_text_mode_enter_valid_path_advances(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m.fb_text_mode = True
+    m.fb_text_input = str(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.PROVIDER_SELECT
+
+
+def test_fb_text_mode_enter_invalid_path_shows_error(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m.fb_text_mode = True
+    m.fb_text_input = '/nonexistent/path/xyz'
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.FOLDER_BROWSER
+    assert 'error' in m.fb_status
+
+
+def test_fb_clipboard_msg_appends_to_input(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m.fb_text_mode = True
+    m.fb_text_input = '/home/'
+    m, _ = m.update(_ClipboardMsg(text='matt'))
+    assert 'matt' in m.fb_text_input
