@@ -22,6 +22,9 @@ python keromdizer.py /path/to/export/ --output ~/notes/chatgpt
 # Preview without writing files
 python keromdizer.py /path/to/export/ --dry-run
 
+# Specify export source explicitly (default: auto-detected)
+python keromdizer.py /path/to/export/ --source deepseek
+
 # Custom speaker labels (CLI override)
 python keromdizer.py /path/to/export/ --user-name Matt --assistant-name ChatGPT
 
@@ -48,7 +51,9 @@ keromdizer.py          ← CLI entrypoint (argparse, thin wiring layer only)
 ├── conversation_parser.py  ← Reads conversations.json, reconstructs branches
 ├── renderer.py             ← Converts parsed data to GFM markdown strings
 ├── file_manager.py         ← Filenames, deduplication, image copying
-└── models.py               ← Message, Branch, Conversation dataclasses
+├── models.py               ← Message, Branch, Conversation dataclasses
+├── deepseek_parser.py      ← DeepSeekParser subclass (DeepSeek export support)
+└── parser_factory.py       ← detect_source(), build_parser() — provider auto-detection
 ```
 
 **Data flow:** `ConversationParser.parse()` → `list[Conversation]` → per branch: `MarkdownRenderer.render()` → string → `FileManager.write()`
@@ -62,6 +67,8 @@ keromdizer.py          ← CLI entrypoint (argparse, thin wiring layer only)
 | `renderer.py` | GFM markdown generation |
 | `file_manager.py` | File I/O, manifest, asset copying |
 | `models.py` | Dataclasses: `Message`, `Branch`, `Conversation` |
+| `deepseek_parser.py` | DeepSeek export parsing (subclasses `ConversationParser`) |
+| `parser_factory.py` | Auto-detect source, return parser + provider string |
 | `config.py` | Persona config loading — reads `~/.keromdizer.toml`, resolves display names |
 | `conftest.py` | Adds project root to `sys.path` for pytest |
 | `tests/fixtures/sample_conversations.json` | Minimal test fixture (3 conversations) |
@@ -86,6 +93,28 @@ The export is a **tree**, not a flat list. Key facts:
 **Skipped roles:** `system`, `tool` — only `user` and `assistant` appear in output
 
 **Image references:** User images use `sediment://file_xxx` URIs. The actual files in the export folder have the format `file_xxx-sanitized.jpg` (prefix match via glob). Some images use `file-service://` URIs — these are NOT included in the export archive and will produce "image not found" warnings. This is normal.
+
+## DeepSeek Export Support
+
+Auto-detected from `user.json` containing a `mobile` field. Override with `--source deepseek`.
+
+```bash
+# Auto-detect (default)
+python keromdizer.py /path/to/deepseek-export/
+
+# Explicit source
+python keromdizer.py /path/to/deepseek-export/ --source deepseek
+```
+
+Key format differences from ChatGPT:
+- Timestamps are ISO 8601 strings (`inserted_at`, `updated_at`) not Unix floats
+- Messages use `fragments` list with `type` field: `REQUEST` (user), `RESPONSE` (assistant)
+- `THINK` and `SEARCH` fragments are silently skipped (like ChatGPT's `thoughts`)
+- Main branch is the leaf with the latest `inserted_at` (no `current_node` pointer)
+- Model slug is per-message (first `RESPONSE` fragment): `deepseek-chat`, `deepseek-reasoner`
+- No shared conversations, no audio recordings in DeepSeek exports
+
+Persona config: `[providers.deepseek]` in `~/.keromdizer.toml`. Default assistant name: `DeepSeek`.
 
 ## Output Format
 
@@ -160,10 +189,11 @@ ChatGPT titles frequently contain `·` (middle dot, U+00B7) — e.g., `"Branch �
 Tests live in `tests/`. The `conftest.py` at the project root adds `.` to `sys.path` so bare `pytest` works (no need for `python -m pytest`).
 
 ```bash
-pytest tests/ -v          # all tests
-pytest tests/test_parser.py -v    # parser only
-pytest tests/test_renderer.py -v  # renderer only
-pytest tests/test_file_manager.py -v  # file manager only
+pytest tests/ -v                       # all tests (71 total)
+pytest tests/test_parser.py -v         # parser only
+pytest tests/test_renderer.py -v       # renderer only
+pytest tests/test_file_manager.py -v   # file manager only
+pytest tests/test_parser_factory.py -v # parser factory / auto-detection
 ```
 
 Tests use `tmp_path` (pytest built-in) extensively — each test gets its own isolated temp dir, no cleanup needed.
