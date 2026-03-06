@@ -240,7 +240,23 @@ class AppModel(tea.Model):
         return panel_style.width(w).render(content)
 
     # ── Screen stubs (implemented in later tasks) ──────────────────────────────
-    def _key_main(self, msg):            return self, None
+    def _key_main(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        n = len(self.menu_items)
+        if msg.key in ('down', 'j'):
+            self.menu_cursor = (self.menu_cursor + 1) % n
+        elif msg.key in ('up', 'k'):
+            self.menu_cursor = (self.menu_cursor - 1) % n
+        elif msg.key == 'q':
+            return self, tea.quit_cmd
+        elif msg.key == 'enter':
+            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.REVIEW]
+            self.screen = dest[self.menu_cursor]
+            if self.screen == Screen.FOLDER_BROWSER:
+                self._fb_refresh()
+        return self, None
+
     def _key_folder_browser(self, msg):  return self, None
     def _key_provider_select(self, msg): return self, None
     def _key_confirm(self, msg):         return self, None
@@ -248,7 +264,15 @@ class AppModel(tea.Model):
     def _key_settings(self, msg):        return self, None
     def _key_review(self, msg):          return self, None
 
-    def _view_main(self):            return self._panel('KeroMDizer TUI')
+    def _view_main(self) -> str:
+        lines = [self._header(), '']
+        for i, item in enumerate(self.menu_items):
+            if i == self.menu_cursor:
+                lines.append(sel_style.render(f'  ▶  {item}'))
+            else:
+                lines.append(muted_style.render(f'     {item}'))
+        lines += ['', self._footer('↑↓ move   enter select   q quit')]
+        return self._panel('\n'.join(lines))
     def _view_folder_browser(self):  return self._panel('Folder Browser')
     def _view_provider_select(self): return self._panel('Provider Select')
     def _view_confirm(self):         return self._panel('Confirm')
