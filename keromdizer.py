@@ -3,7 +3,7 @@ import sys
 from pathlib import Path
 
 from config import load_persona
-from conversation_parser import ConversationParser
+from parser_factory import build_parser
 from renderer import MarkdownRenderer
 from file_manager import FileManager
 
@@ -38,13 +38,19 @@ def main():
         default=None,
         help='Override assistant label in output (default: from ~/.keromdizer.toml or provider name)',
     )
+    arg_parser.add_argument(
+        '--source',
+        choices=['chatgpt', 'deepseek'],
+        default=None,
+        help='Export source (default: auto-detected from folder contents)',
+    )
     args = arg_parser.parse_args()
 
     if not args.export_folder.is_dir():
         print(f'Error: {args.export_folder} is not a directory', file=sys.stderr)
         sys.exit(1)
 
-    conv_parser = ConversationParser(args.export_folder)
+    conv_parser, provider = build_parser(args.export_folder, source=args.source)
     try:
         conversations = conv_parser.parse()
     except FileNotFoundError as e:
@@ -53,7 +59,7 @@ def main():
 
     try:
         persona = load_persona(
-            provider='chatgpt',
+            provider=provider,
             user_name=args.user_name,
             assistant_name=args.assistant_name,
         )
