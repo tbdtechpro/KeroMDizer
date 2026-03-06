@@ -10,12 +10,8 @@ class DeepSeekParser(ConversationParser):
         """Always return empty set — DeepSeek has no shared conversations."""
         return set()
 
-    def _parse_iso_timestamp(self, ts: str) -> float:
-        """Parse ISO 8601 string to Unix float. Raises on error."""
-        return datetime.fromisoformat(ts).timestamp()
-
     def _parse_iso_timestamp_safe(self, ts: str | None) -> float | None:
-        """Parse ISO 8601 string to Unix float, returns None on error or None input."""
+        """Parse ISO 8601 string to Unix float. Returns None on error or None input."""
         if ts is None:
             return None
         try:
@@ -77,9 +73,8 @@ class DeepSeekParser(ConversationParser):
             for i, (_, _, msgs) in enumerate(branches)
         ]
 
-        # Model: from first RESPONSE in main branch
-        main_path = self._trace_to_root(mapping, main_leaf)
-        model_slug = self._extract_model(mapping, main_path)
+        # Model: from first RESPONSE in main branch (reuse already-computed path)
+        model_slug = self._extract_model(mapping, list(branches[0][1]))
 
         conv_id = raw.get('id') or raw.get('conversation_id', '')
 

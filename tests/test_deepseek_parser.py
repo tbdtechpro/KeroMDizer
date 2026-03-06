@@ -63,6 +63,7 @@ def test_branch_main_is_latest_timestamp(tmp_path):
     """Branch 1 is the later-timestamped leaf in ds-branched-002 (n6 path, branch B)."""
     convs = _setup(tmp_path)
     conv = _find(convs, 'ds-branched-002')
+    assert len(conv.branches) == 2
     branch1 = conv.branches[0]
     all_text = ' '.join(msg.text for msg in branch1.messages)
     assert 'Branch B answer (latest)' in all_text
