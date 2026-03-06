@@ -571,11 +571,13 @@ class AppModel(tea.Model):
         return self._panel('\n'.join(lines))
 
     def _fb_refresh(self) -> None:
-        """Populate fb_entries from fb_dir."""
+        """Populate fb_entries from fb_dir — directories only.
+
+        Files are never shown; the app handles JSON selection internally.
+        """
         try:
-            entries = sorted(self.fb_dir.iterdir(),
-                             key=lambda p: (not p.is_dir(), p.name.lower()))
-            self.fb_entries = [e for e in entries if not e.name.startswith('.')]
+            entries = sorted(self.fb_dir.iterdir(), key=lambda p: p.name.lower())
+            self.fb_entries = [e for e in entries if e.is_dir() and not e.name.startswith('.')]
         except PermissionError:
             self.fb_entries = []
         self.fb_cursor = 0

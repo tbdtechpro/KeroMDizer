@@ -104,7 +104,8 @@ def test_fb_refresh_lists_dirs_first(tmp_path):
     (tmp_path / 'adir').mkdir()
     m = _make_fb_model(tmp_path)
     names = [e.name for e in m.fb_entries]
-    assert names.index('adir') < names.index('zfile.txt')
+    assert 'adir' in names
+    assert 'zfile.txt' not in names  # files are filtered out
 
 
 def test_fb_refresh_hides_dotfiles(tmp_path):
@@ -223,15 +224,14 @@ def test_fb_clipboard_msg_appends_to_input(tmp_path):
     assert 'matt' in m.fb_text_input
 
 
-def test_fb_enter_on_file_advances_to_provider_select(tmp_path):
-    """Enter pressed when cursor is on a file selects the current folder."""
+def test_fb_enter_in_export_folder_advances_to_provider_select(tmp_path):
+    """Enter in an export folder (files only, no subdirs) selects the current folder."""
     (tmp_path / 'conversations.json').write_text('[]')
     m = _make_fb_model(tmp_path)
-    # Navigate into tmp_path so fb_entries contains the json file
     m.fb_dir = tmp_path
     m._fb_refresh()
-    # Cursor should be on conversations.json (a file, not a dir)
-    assert not m.fb_entries[0].is_dir()
+    # Files are filtered out — no entries shown
+    assert len(m.fb_entries) == 0
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.screen == Screen.PROVIDER_SELECT
 
