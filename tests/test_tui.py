@@ -371,7 +371,9 @@ def test_run_view_shows_done_message():
     m = _make_run_model()
     m.run_done = True
     m.run_written = 10
-    assert 'Done' in _strip(m.view()) or 'Written' in _strip(m.view())
+    v = _strip(m.view())
+    assert 'Done' in v
+    assert 'Written' in v
 
 
 def test_run_enter_when_done_returns_to_main():
@@ -393,3 +395,10 @@ def test_run_error_msg_stored():
     m, _ = m.update(_RunErrorMsg(error='something went wrong'))
     assert 'something went wrong' in m.run_error
     assert m.run_done is True
+
+
+def test_run_view_shows_error():
+    m = _make_run_model()
+    m.run_error = 'disk full'
+    m.run_done = True
+    assert 'disk full' in _strip(m.view())

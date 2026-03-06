@@ -458,6 +458,7 @@ class AppModel(tea.Model):
         lines = [self._header('Running'), '']
         if self.run_error:
             lines.append(error_style.render(f'Error: {self.run_error}'))
+            lines += ['', self._footer('enter / q  return to main')]
         elif self.run_done:
             lines.append(success_style.render(
                 f'Done!  Written: {self.run_written}  Skipped: {self.run_skipped}'
