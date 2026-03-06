@@ -87,15 +87,33 @@ def _load_settings() -> dict[str, str]:
                 data = tomllib.load(f)
         except Exception:
             pass
+    providers = data.get('providers', {})
     return {
-        'output_dir':     data.get('output', {}).get('dir', './output'),
-        'user_name':      data.get('user', {}).get('name', ''),
-        'assistant_name': '',
+        'output_dir':        data.get('output', {}).get('dir', './output'),
+        'user_name':         data.get('user', {}).get('name', ''),
+        'chatgpt_assistant': providers.get('chatgpt', {}).get('assistant_name', ''),
+        'deepseek_assistant': providers.get('deepseek', {}).get('assistant_name', ''),
     }
 
 
+def _toml_serialize(data: dict, prefix: str = '') -> list[str]:
+    """Minimal recursive TOML serializer for string-valued nested dicts."""
+    lines: list[str] = []
+    flat = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    nested = {k: v for k, v in data.items() if isinstance(v, dict)}
+    if flat:
+        if prefix:
+            lines.append(f'[{prefix}]')
+        for k, v in flat.items():
+            lines.append(f'{k} = "{v}"')
+    for k, v in nested.items():
+        sub_prefix = f'{prefix}.{k}' if prefix else k
+        lines.extend(_toml_serialize(v, sub_prefix))
+    return lines
+
+
 def _save_settings(values: dict[str, str]) -> None:
-    """Persist user_name to ~/.keromdizer.toml."""
+    """Persist settings to ~/.keromdizer.toml."""
     import tomllib
     toml_path = Path.home() / '.keromdizer.toml'
     data: dict = {}
@@ -107,19 +125,11 @@ def _save_settings(values: dict[str, str]) -> None:
             pass
     if values.get('user_name'):
         data.setdefault('user', {})['name'] = values['user_name']
-    lines = []
-    if 'user' in data:
-        lines.append('[user]')
-        lines.append(f'name = "{data["user"].get("name", "")}"')
-    for section, contents in data.items():
-        if section == 'user':
-            continue
-        if not isinstance(contents, dict):
-            continue
-        lines.append(f'\n[{section}]')
-        for k, v in contents.items():
-            lines.append(f'{k} = "{v}"')
-    toml_path.write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    if values.get('chatgpt_assistant'):
+        data.setdefault('providers', {}).setdefault('chatgpt', {})['assistant_name'] = values['chatgpt_assistant']
+    if values.get('deepseek_assistant'):
+        data.setdefault('providers', {}).setdefault('deepseek', {})['assistant_name'] = values['deepseek_assistant']
+    toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
 
 
 def _cmd_clipboard(program: Optional['tea.Program']) -> None:
@@ -179,11 +189,12 @@ class AppModel(tea.Model):
 
         # SETTINGS
         st_defaults = _load_settings()
-        self.st_fields: list[str] = ['output_dir', 'user_name', 'assistant_name']
+        self.st_fields: list[str] = ['output_dir', 'user_name', 'chatgpt_assistant', 'deepseek_assistant']
         self.st_labels: dict[str, str] = {
-            'output_dir':     'Output directory',
-            'user_name':      'User name',
-            'assistant_name': 'Assistant name',
+            'output_dir':        'Output directory',
+            'user_name':         'User name',
+            'chatgpt_assistant': 'ChatGPT assistant name',
+            'deepseek_assistant': 'DeepSeek assistant name',
         }
         self.st_values: dict[str, str] = st_defaults
         self.st_cursor: int = 0
@@ -305,6 +316,8 @@ class AppModel(tea.Model):
             if self.fb_entries and self.fb_entries[self.fb_cursor].is_dir():
                 self.fb_dir = self.fb_entries[self.fb_cursor]
                 self._fb_refresh()
+            else:
+                self._select_folder(self.fb_dir)
         elif key == ' ':
             self._select_folder(self.fb_dir)
         elif key == '/':
@@ -440,8 +453,17 @@ class AppModel(tea.Model):
             return self._panel('\n'.join(lines))
 
         # Current path
-        lines.append(muted_style.render(str(self.fb_dir)))
+        w = min(self.width - 4, 72)
+        path_str = str(self.fb_dir)
+        path_max = w - 8
+        if len(path_str) > path_max:
+            path_str = '…' + path_str[-(path_max - 1):]
+        lines.append(muted_style.render(path_str))
         lines.append('')
+
+        if (self.fb_dir / 'conversations.json').exists():
+            lines.append(success_style.render('  ✓ Export folder detected — press enter or space to import'))
+            lines.append('')
 
         visible = max(4, self.height - 12)
         start = max(0, min(self.fb_cursor - visible // 2,
@@ -449,18 +471,24 @@ class AppModel(tea.Model):
         start = max(0, start)
         shown = self.fb_entries[start:start + visible]
 
+        w = min(self.width - 4, 72)
+        inner_w = w - 6   # panel border (2) + padding (2*2)
+        max_label = max(10, inner_w - 5)  # 5 = len('  ▶  ')
+
         if not shown:
             lines.append(muted_style.render('  (empty directory)'))
         for i, entry in enumerate(shown):
             idx = start + i
             label = entry.name + ('/' if entry.is_dir() else '')
+            if len(label) > max_label:
+                label = label[:max_label - 1] + '…'
             if idx == self.fb_cursor:
                 lines.append(sel_style.render(f'  ▶  {label}'))
             else:
                 row_style = lipgloss.Style().foreground(C_TEXT) if entry.is_dir() else muted_style
                 lines.append(row_style.render(f'     {label}'))
 
-        lines += ['', self._footer('↑↓ navigate   enter descend   backspace up   space select   / type path   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter open / select   backspace up   / type path   esc back')]
         return self._panel('\n'.join(lines))
     def _view_provider_select(self) -> str:
         lines = [self._header('Select Provider'), '']

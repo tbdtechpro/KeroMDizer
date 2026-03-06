@@ -223,6 +223,38 @@ def test_fb_clipboard_msg_appends_to_input(tmp_path):
     assert 'matt' in m.fb_text_input
 
 
+def test_fb_enter_on_file_advances_to_provider_select(tmp_path):
+    """Enter pressed when cursor is on a file selects the current folder."""
+    (tmp_path / 'conversations.json').write_text('[]')
+    m = _make_fb_model(tmp_path)
+    # Navigate into tmp_path so fb_entries contains the json file
+    m.fb_dir = tmp_path
+    m._fb_refresh()
+    # Cursor should be on conversations.json (a file, not a dir)
+    assert not m.fb_entries[0].is_dir()
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.PROVIDER_SELECT
+
+
+def test_fb_detected_badge_shown_when_conversations_json_exists(tmp_path):
+    """Export folder detection badge appears when conversations.json is present."""
+    (tmp_path / 'conversations.json').write_text('[]')
+    m = _make_fb_model(tmp_path)
+    m.fb_dir = tmp_path
+    m._fb_refresh()
+    v = _strip(m.view())
+    assert 'detected' in v.lower() or '✓' in v
+
+
+def test_fb_detected_badge_absent_when_no_conversations_json(tmp_path):
+    """No badge shown for a plain folder without conversations.json."""
+    m = _make_fb_model(tmp_path)
+    m.fb_dir = tmp_path
+    m._fb_refresh()
+    v = _strip(m.view())
+    assert 'Export folder detected' not in v
+
+
 def _make_ps_model(tmp_path) -> AppModel:
     m = AppModel()
     m.screen = Screen.PROVIDER_SELECT
@@ -411,7 +443,7 @@ def _make_st_model() -> AppModel:
     m.screen = Screen.SETTINGS
     m.width, m.height = 80, 24
     m.st_cursor = 0
-    m.st_values = {'output_dir': './output', 'user_name': '', 'assistant_name': ''}
+    m.st_values = {'output_dir': './output', 'user_name': '', 'chatgpt_assistant': '', 'deepseek_assistant': ''}
     m.st_status = ''
     return m
 
@@ -421,7 +453,8 @@ def test_st_view_shows_field_labels():
     v = _strip(m.view())
     assert 'Output directory' in v
     assert 'User name' in v
-    assert 'Assistant name' in v
+    assert 'ChatGPT assistant name' in v
+    assert 'DeepSeek assistant name' in v
 
 
 def test_st_tab_moves_to_next_field():
@@ -440,14 +473,14 @@ def test_st_shift_tab_moves_to_prev_field():
 
 def test_st_tab_wraps_to_save_button():
     m = _make_st_model()
-    m.st_cursor = 2  # last text field
+    m.st_cursor = 3  # last text field
     m, _ = m.update(tea.KeyMsg(key='tab'))
-    assert m.st_cursor == 3  # Save button
+    assert m.st_cursor == 4  # Save button
 
 
 def test_st_tab_wraps_from_save_button_to_first_field():
     m = _make_st_model()
-    m.st_cursor = 3  # Save button
+    m.st_cursor = 4  # Save button
     m, _ = m.update(tea.KeyMsg(key='tab'))
     assert m.st_cursor == 0
 
@@ -456,7 +489,7 @@ def test_st_shift_tab_wraps_from_first_field_to_save_button():
     m = _make_st_model()
     m.st_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='shift+tab'))
-    assert m.st_cursor == 3
+    assert m.st_cursor == 4
 
 
 def test_st_typing_updates_focused_field():
@@ -481,7 +514,7 @@ def test_st_save_button_enter_writes_toml(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setattr('tui._save_settings', lambda v: saved.update(v))
     m = _make_st_model()
-    m.st_cursor = 3  # Save button
+    m.st_cursor = 4  # Save button
     m.st_values['user_name'] = 'Matt'
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert saved.get('user_name') == 'Matt'
