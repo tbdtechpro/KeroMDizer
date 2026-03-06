@@ -221,3 +221,56 @@ def test_fb_clipboard_msg_appends_to_input(tmp_path):
     m.fb_text_input = '/home/'
     m, _ = m.update(_ClipboardMsg(text='matt'))
     assert 'matt' in m.fb_text_input
+
+
+def _make_ps_model(tmp_path) -> AppModel:
+    m = AppModel()
+    m.screen = Screen.PROVIDER_SELECT
+    m.width, m.height = 80, 24
+    m.cf_folder = tmp_path
+    m.ps_cursor = 0
+    return m
+
+
+def test_ps_view_shows_all_options(tmp_path):
+    m = _make_ps_model(tmp_path)
+    v = _strip(m.view())
+    assert 'auto' in v
+    assert 'chatgpt' in v
+    assert 'deepseek' in v
+
+
+def test_ps_right_cycles_to_next(tmp_path):
+    m = _make_ps_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='right'))
+    assert m.ps_cursor == 1
+
+
+def test_ps_left_wraps(tmp_path):
+    m = _make_ps_model(tmp_path)
+    m.ps_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='left'))
+    assert m.ps_cursor == 2  # wraps to 'deepseek'
+
+
+def test_ps_enter_sets_provider_and_advances(tmp_path):
+    m = _make_ps_model(tmp_path)
+    m.ps_cursor = 1  # chatgpt
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.cf_provider == 'chatgpt'
+    assert m.screen == Screen.CONFIRM
+
+
+def test_ps_enter_auto_uses_detected_provider(tmp_path):
+    # tmp_path has no user.json → detects as 'chatgpt'
+    m = _make_ps_model(tmp_path)
+    m.ps_cursor = 0  # auto
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.cf_provider == 'chatgpt'
+    assert m.screen == Screen.CONFIRM
+
+
+def test_ps_esc_returns_to_folder_browser(tmp_path):
+    m = _make_ps_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.FOLDER_BROWSER

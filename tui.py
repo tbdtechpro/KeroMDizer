@@ -319,7 +319,31 @@ class AppModel(tea.Model):
         self.ps_cursor = 0
         self.ps_detected = ''
         self.screen = Screen.PROVIDER_SELECT
-    def _key_provider_select(self, msg): return self, None
+
+    def _key_provider_select(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        n = len(self.ps_options)
+        key = msg.key
+        if key == 'escape':
+            self.screen = Screen.FOLDER_BROWSER
+            self.fb_dir = self.cf_folder
+            self._fb_refresh()
+        elif key in ('right', 'l', ' '):
+            self.ps_cursor = (self.ps_cursor + 1) % n
+        elif key in ('left', 'h'):
+            self.ps_cursor = (self.ps_cursor - 1) % n
+        elif key == 'enter':
+            chosen = self.ps_options[self.ps_cursor]
+            if chosen == 'auto':
+                from parser_factory import detect_source
+                chosen = detect_source(self.cf_folder)
+            self.cf_provider = chosen
+            self.cf_conv_count = None
+            self.cf_scanning = True
+            self.screen = Screen.CONFIRM
+            _cmd_scan(self.cf_folder, self.cf_provider, self._program)
+        return self, None
     def _key_confirm(self, msg):         return self, None
     def _key_run(self, msg):             return self, None
     def _key_settings(self, msg):        return self, None
@@ -370,7 +394,17 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('↑↓ navigate   enter descend   backspace up   space select   / type path   esc back')]
         return self._panel('\n'.join(lines))
-    def _view_provider_select(self): return self._panel('Provider Select')
+    def _view_provider_select(self) -> str:
+        lines = [self._header('Select Provider'), '']
+        lines.append(muted_style.render(f'Folder:  {self.cf_folder}'))
+        lines.append('')
+        for i, opt in enumerate(self.ps_options):
+            if i == self.ps_cursor:
+                lines.append(sel_style.render(f'  ▶  {opt}'))
+            else:
+                lines.append(muted_style.render(f'     {opt}'))
+        lines += ['', self._footer('← → cycle   enter confirm   esc back')]
+        return self._panel('\n'.join(lines))
     def _view_confirm(self):         return self._panel('Confirm')
     def _view_run(self):             return self._panel('Run')
     def _view_settings(self):        return self._panel('Settings')
@@ -386,6 +420,22 @@ class AppModel(tea.Model):
             self.fb_entries = []
         self.fb_cursor = 0
         self.fb_status = ''
+
+
+# ── Background commands ────────────────────────────────────────────────────────
+def _cmd_scan(folder: Path, provider: str, program: Optional['tea.Program']) -> None:
+    """Parse conversations in background and send _ConvCountMsg."""
+    def _run():
+        try:
+            from parser_factory import build_parser
+            parser, _ = build_parser(folder, source=provider)
+            convs = parser.parse()
+            if program:
+                program.send(_ConvCountMsg(count=len(convs)))
+        except Exception:
+            if program:
+                program.send(_ConvCountMsg(count=0))
+    threading.Thread(target=_run, daemon=True).start()
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
