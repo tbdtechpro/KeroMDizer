@@ -392,3 +392,4 @@ def test_run_error_msg_stored():
     m = _make_run_model()
     m, _ = m.update(_RunErrorMsg(error='something went wrong'))
     assert 'something went wrong' in m.run_error
+    assert m.run_done is True
