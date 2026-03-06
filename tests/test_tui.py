@@ -86,3 +86,84 @@ def test_main_enter_review_goes_to_review():
     m.menu_cursor = 2  # Review
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.screen == Screen.REVIEW
+
+
+def _make_fb_model(tmp_path) -> AppModel:
+    """Helper: AppModel at FOLDER_BROWSER with tmp_path as current dir."""
+    m = AppModel()
+    m.screen = Screen.FOLDER_BROWSER
+    m.width, m.height = 80, 24
+    m.fb_dir = tmp_path
+    m.fb_text_mode = False
+    m._fb_refresh()
+    return m
+
+
+def test_fb_refresh_lists_dirs_first(tmp_path):
+    (tmp_path / 'zfile.txt').write_text('x')
+    (tmp_path / 'adir').mkdir()
+    m = _make_fb_model(tmp_path)
+    names = [e.name for e in m.fb_entries]
+    assert names.index('adir') < names.index('zfile.txt')
+
+
+def test_fb_refresh_hides_dotfiles(tmp_path):
+    (tmp_path / '.hidden').mkdir()
+    (tmp_path / 'visible').mkdir()
+    m = _make_fb_model(tmp_path)
+    names = [e.name for e in m.fb_entries]
+    assert '.hidden' not in names
+    assert 'visible' in names
+
+
+def test_fb_cursor_moves_down(tmp_path):
+    (tmp_path / 'a').mkdir()
+    (tmp_path / 'b').mkdir()
+    m = _make_fb_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='down'))
+    assert m.fb_cursor == 1
+
+
+def test_fb_cursor_clamps_at_bottom(tmp_path):
+    (tmp_path / 'only').mkdir()
+    m = _make_fb_model(tmp_path)
+    m.fb_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='down'))
+    assert m.fb_cursor == 0  # only one entry, stays
+
+
+def test_fb_enter_descends_into_dir(tmp_path):
+    sub = tmp_path / 'subdir'
+    sub.mkdir()
+    m = _make_fb_model(tmp_path)
+    # cursor is on subdir (first and only dir entry)
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.fb_dir == sub
+
+
+def test_fb_backspace_goes_up(tmp_path):
+    sub = tmp_path / 'subdir'
+    sub.mkdir()
+    m = _make_fb_model(tmp_path)
+    m.fb_dir = sub
+    m._fb_refresh()
+    m, _ = m.update(tea.KeyMsg(key='backspace'))
+    assert m.fb_dir == tmp_path
+
+
+def test_fb_space_selects_folder_advances_to_provider_select(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key=' '))
+    assert m.screen == Screen.PROVIDER_SELECT
+    assert m.cf_folder == tmp_path
+
+
+def test_fb_esc_returns_to_main(tmp_path):
+    m = _make_fb_model(tmp_path)
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN
+
+
+def test_fb_view_shows_current_dir(tmp_path):
+    m = _make_fb_model(tmp_path)
+    assert str(tmp_path) in _strip(m.view())

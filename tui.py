@@ -257,7 +257,69 @@ class AppModel(tea.Model):
                 self._fb_refresh()
         return self, None
 
-    def _key_folder_browser(self, msg):  return self, None
+    def _key_folder_browser(self, msg):
+        if isinstance(msg, _ClipboardMsg):
+            if self.fb_text_mode:
+                self.fb_text_input += msg.text.strip()
+            return self, None
+
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+
+        key = msg.key
+
+        # ── Text mode ──────────────────────────────────────────────────────────
+        if self.fb_text_mode:
+            if key == 'escape':
+                self.fb_text_mode = False
+                self.fb_text_input = ''
+                self.fb_status = ''
+            elif key == 'enter':
+                p = Path(self.fb_text_input.strip()).expanduser()
+                if p.is_dir():
+                    self._select_folder(p)
+                else:
+                    self.fb_status = f'error:Not a directory: {p}'
+            elif key == 'backspace':
+                self.fb_text_input = self.fb_text_input[:-1]
+            elif key == 'ctrl+u':
+                self.fb_text_input = ''
+            elif key == 'ctrl+v':
+                _cmd_clipboard(self._program)
+            elif len(key) == 1:
+                self.fb_text_input += key
+            return self, None
+
+        # ── Browse mode ────────────────────────────────────────────────────────
+        if key == 'escape':
+            self.screen = Screen.MAIN
+        elif key in ('down', 'j'):
+            self.fb_cursor = min(self.fb_cursor + 1, len(self.fb_entries) - 1)
+        elif key in ('up', 'k'):
+            self.fb_cursor = max(self.fb_cursor - 1, 0)
+        elif key == 'backspace':
+            parent = self.fb_dir.parent
+            if parent != self.fb_dir:
+                self.fb_dir = parent
+                self._fb_refresh()
+        elif key == 'enter':
+            if self.fb_entries and self.fb_entries[self.fb_cursor].is_dir():
+                self.fb_dir = self.fb_entries[self.fb_cursor]
+                self._fb_refresh()
+        elif key == ' ':
+            self._select_folder(self.fb_dir)
+        elif key == '/':
+            self.fb_text_mode = True
+            self.fb_text_input = ''
+            self.fb_status = ''
+        return self, None
+
+    def _select_folder(self, path: Path) -> None:
+        """Advance to PROVIDER_SELECT with the chosen folder."""
+        self.cf_folder = path
+        self.ps_cursor = 0
+        self.ps_detected = ''
+        self.screen = Screen.PROVIDER_SELECT
     def _key_provider_select(self, msg): return self, None
     def _key_confirm(self, msg):         return self, None
     def _key_run(self, msg):             return self, None
@@ -273,7 +335,42 @@ class AppModel(tea.Model):
                 lines.append(muted_style.render(f'     {item}'))
         lines += ['', self._footer('↑↓ move   enter select   q quit')]
         return self._panel('\n'.join(lines))
-    def _view_folder_browser(self):  return self._panel('Folder Browser')
+    def _view_folder_browser(self) -> str:
+        lines = [self._header('Select Folder'), '']
+
+        if self.fb_text_mode:
+            lines.append(muted_style.render('Type or paste a path:'))
+            lines.append(f'  {self.fb_text_input}█')
+            if self.fb_status:
+                prefix, _, rest = self.fb_status.partition(':')
+                s = error_style.render(rest) if prefix == 'error' else success_style.render(rest)
+                lines.append(s)
+            lines += ['', self._footer('enter confirm   esc browse mode   ctrl+v paste')]
+            return self._panel('\n'.join(lines))
+
+        # Current path
+        lines.append(muted_style.render(str(self.fb_dir)))
+        lines.append('')
+
+        visible = max(4, self.height - 12)
+        start = max(0, min(self.fb_cursor - visible // 2,
+                           len(self.fb_entries) - visible))
+        start = max(0, start)
+        shown = self.fb_entries[start:start + visible]
+
+        if not shown:
+            lines.append(muted_style.render('  (empty directory)'))
+        for i, entry in enumerate(shown):
+            idx = start + i
+            label = entry.name + ('/' if entry.is_dir() else '')
+            if idx == self.fb_cursor:
+                lines.append(sel_style.render(f'  ▶  {label}'))
+            else:
+                row_style = lipgloss.Style().foreground(C_TEXT) if entry.is_dir() else muted_style
+                lines.append(row_style.render(f'     {label}'))
+
+        lines += ['', self._footer('↑↓ navigate   enter descend   backspace up   space select   / type path   esc back')]
+        return self._panel('\n'.join(lines))
     def _view_provider_select(self): return self._panel('Provider Select')
     def _view_confirm(self):         return self._panel('Confirm')
     def _view_run(self):             return self._panel('Run')
