@@ -445,6 +445,20 @@ def test_st_tab_wraps_to_save_button():
     assert m.st_cursor == 3  # Save button
 
 
+def test_st_tab_wraps_from_save_button_to_first_field():
+    m = _make_st_model()
+    m.st_cursor = 3  # Save button
+    m, _ = m.update(tea.KeyMsg(key='tab'))
+    assert m.st_cursor == 0
+
+
+def test_st_shift_tab_wraps_from_first_field_to_save_button():
+    m = _make_st_model()
+    m.st_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='shift+tab'))
+    assert m.st_cursor == 3
+
+
 def test_st_typing_updates_focused_field():
     m = _make_st_model()
     m.st_cursor = 1  # user_name
