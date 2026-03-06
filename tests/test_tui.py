@@ -1,5 +1,5 @@
 # tests/test_tui.py
-from tui import AppModel, Screen, _ClipboardMsg, _ConvCountMsg
+from tui import AppModel, Screen, _ClipboardMsg, _ConvCountMsg, _ProgressMsg, _DoneMsg, _RunErrorMsg
 import bubbletea as tea
 
 
@@ -333,3 +333,62 @@ def test_cf_esc_returns_to_provider_select(tmp_path):
     m = _make_cf_model(tmp_path)
     m, _ = m.update(tea.KeyMsg(key='escape'))
     assert m.screen == Screen.PROVIDER_SELECT
+
+
+def _make_run_model() -> AppModel:
+    m = AppModel()
+    m.screen = Screen.RUN
+    m.width, m.height = 80, 24
+    m.run_total   = 10
+    m.run_written = 0
+    m.run_skipped = 0
+    m.run_done    = False
+    return m
+
+
+def test_run_progress_msg_updates_counts():
+    m = _make_run_model()
+    m, _ = m.update(_ProgressMsg(written=3, skipped=1, total=10))
+    assert m.run_written == 3
+    assert m.run_skipped == 1
+
+
+def test_run_done_msg_sets_done():
+    m = _make_run_model()
+    m, _ = m.update(_DoneMsg(written=8, skipped=2))
+    assert m.run_done is True
+    assert m.run_written == 8
+    assert m.run_skipped == 2
+
+
+def test_run_view_shows_progress():
+    m = _make_run_model()
+    m.run_written = 5
+    assert '5' in _strip(m.view())
+
+
+def test_run_view_shows_done_message():
+    m = _make_run_model()
+    m.run_done = True
+    m.run_written = 10
+    assert 'Done' in _strip(m.view()) or 'Written' in _strip(m.view())
+
+
+def test_run_enter_when_done_returns_to_main():
+    m = _make_run_model()
+    m.run_done = True
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.MAIN
+
+
+def test_run_enter_while_running_does_nothing():
+    m = _make_run_model()
+    m.run_done = False
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.RUN
+
+
+def test_run_error_msg_stored():
+    m = _make_run_model()
+    m, _ = m.update(_RunErrorMsg(error='something went wrong'))
+    assert 'something went wrong' in m.run_error

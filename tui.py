@@ -363,7 +363,25 @@ class AppModel(tea.Model):
             self.screen = Screen.RUN
             _cmd_run(self.cf_folder, self.cf_provider, self.st_values, self._program)
         return self, None
-    def _key_run(self, msg):             return self, None
+    def _key_run(self, msg):
+        if isinstance(msg, _ProgressMsg):
+            self.run_written = msg.written
+            self.run_skipped = msg.skipped
+            self.run_total   = msg.total
+            return self, None
+        if isinstance(msg, _DoneMsg):
+            self.run_written = msg.written
+            self.run_skipped = msg.skipped
+            self.run_done    = True
+            return self, None
+        if isinstance(msg, _RunErrorMsg):
+            self.run_error = msg.error
+            self.run_done  = True
+            return self, None
+        if isinstance(msg, tea.KeyMsg):
+            if self.run_done and msg.key in ('enter', 'q'):
+                self.screen = Screen.MAIN
+        return self, None
     def _key_settings(self, msg):        return self, None
     def _key_review(self, msg):          return self, None
 
@@ -436,7 +454,22 @@ class AppModel(tea.Model):
             lines.append(success_style.render(f'  {count} conversation(s) found'))
         lines += ['', self._footer('enter / r  run   esc back')]
         return self._panel('\n'.join(lines))
-    def _view_run(self):             return self._panel('Run')
+    def _view_run(self) -> str:
+        lines = [self._header('Running'), '']
+        if self.run_error:
+            lines.append(error_style.render(f'Error: {self.run_error}'))
+        elif self.run_done:
+            lines.append(success_style.render(
+                f'Done!  Written: {self.run_written}  Skipped: {self.run_skipped}'
+            ))
+            lines += ['', self._footer('enter / q  return to main')]
+        else:
+            total_str = f'/{self.run_total}' if self.run_total else ''
+            lines.append(f'  Written:  {self.run_written}{total_str}')
+            lines.append(f'  Skipped:  {self.run_skipped}')
+            lines.append('')
+            lines.append(muted_style.render('  Converting…'))
+        return self._panel('\n'.join(lines))
     def _view_settings(self):        return self._panel('Settings')
     def _view_review(self):          return self._panel('Review')
 
@@ -473,8 +506,70 @@ def _cmd_scan(folder: Path, provider: str, program: Optional['tea.Program']) -> 
 
 
 def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['tea.Program']) -> None:
-    """Stub: start background thread to run the export. Implemented in Task 7."""
-    pass
+    """Run conversion pipeline in background daemon thread.
+
+    Uses daemon thread + program.send() pattern (same as _cmd_scan).
+    Not a tea.Cmd — spawns thread directly as a side effect.
+    """
+    def _worker():
+        try:
+            from parser_factory import build_parser
+            from renderer import MarkdownRenderer
+            from file_manager import FileManager
+            from config import load_persona
+
+            output_dir = Path(st_values.get('output_dir', './output'))
+            parser, prov = build_parser(folder, source=provider)
+            conversations = parser.parse()
+            total = len(conversations)
+
+            persona = load_persona(
+                provider=prov,
+                user_name=st_values.get('user_name') or None,
+                assistant_name=st_values.get('assistant_name') or None,
+            )
+            renderer = MarkdownRenderer(persona)
+            file_mgr = FileManager(output_dir)
+
+            written = 0
+            skipped = 0
+
+            for conv in conversations:
+                if not file_mgr.needs_update(conv):
+                    skipped += 1
+                    if program:
+                        program.send(_ProgressMsg(written=written, skipped=skipped, total=total))
+                    continue
+
+                for branch in conv.branches:
+                    # Resolve image refs (ChatGPT only; DeepSeek has none)
+                    for msg in branch.messages:
+                        resolved = {}
+                        for file_id in msg.image_refs:
+                            actual = file_mgr.copy_asset(folder, file_id)
+                            if actual:
+                                resolved[file_id] = actual
+                        for old_id, new_name in resolved.items():
+                            msg.text = msg.text.replace(
+                                f'assets/{old_id})', f'assets/{new_name})'
+                            )
+                    content  = renderer.render(conv, branch)
+                    filename = file_mgr.make_filename(conv, branch)
+                    file_mgr.write(filename, content, conv)
+                    written += 1
+
+                if program:
+                    program.send(_ProgressMsg(written=written, skipped=skipped, total=total))
+
+            file_mgr.save_manifest()
+            if program:
+                program.send(_DoneMsg(written=written, skipped=skipped))
+
+        except Exception as e:
+            if program:
+                program.send(_RunErrorMsg(error=str(e)))
+
+    threading.Thread(target=_worker, daemon=True).start()
 
 
 # ── Entry point ────────────────────────────────────────────────────────────────
