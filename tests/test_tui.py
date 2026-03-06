@@ -322,6 +322,13 @@ def test_cf_r_also_advances_to_run(tmp_path):
     assert m.screen == Screen.RUN
 
 
+def test_cf_enter_blocked_while_scanning(tmp_path):
+    m = _make_cf_model(tmp_path)  # cf_scanning=True by default
+    m.cf_conv_count = 10
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.CONFIRM  # stays put while scanning
+
+
 def test_cf_esc_returns_to_provider_select(tmp_path):
     m = _make_cf_model(tmp_path)
     m, _ = m.update(tea.KeyMsg(key='escape'))
