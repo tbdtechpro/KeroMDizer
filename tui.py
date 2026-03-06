@@ -155,7 +155,6 @@ class AppModel(tea.Model):
         self.fb_dir: Path = Path.home()
         self.fb_entries: list[Path] = []
         self.fb_cursor: int = 0
-        self.fb_scroll: int = 0
         self.fb_text_mode: bool = False
         self.fb_text_input: str = ''
         self.fb_status: str = ''
@@ -386,7 +385,6 @@ class AppModel(tea.Model):
         except PermissionError:
             self.fb_entries = []
         self.fb_cursor = 0
-        self.fb_scroll = 0
         self.fb_status = ''
 
 
