@@ -272,16 +272,16 @@ def test_ps_view_shows_all_options(tmp_path):
     assert 'deepseek' in v
 
 
-def test_ps_right_cycles_to_next(tmp_path):
+def test_ps_down_cycles_to_next(tmp_path):
     m = _make_ps_model(tmp_path)
-    m, _ = m.update(tea.KeyMsg(key='right'))
+    m, _ = m.update(tea.KeyMsg(key='down'))
     assert m.ps_cursor == 1
 
 
-def test_ps_left_wraps(tmp_path):
+def test_ps_up_wraps(tmp_path):
     m = _make_ps_model(tmp_path)
     m.ps_cursor = 0
-    m, _ = m.update(tea.KeyMsg(key='left'))
+    m, _ = m.update(tea.KeyMsg(key='up'))
     assert m.ps_cursor == 2  # wraps to 'deepseek'
 
 

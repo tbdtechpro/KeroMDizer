@@ -342,9 +342,9 @@ class AppModel(tea.Model):
             self.screen = Screen.FOLDER_BROWSER
             self.fb_dir = self.cf_folder
             self._fb_refresh()
-        elif key in ('right', 'l', ' '):
+        elif key in ('down', 'j'):
             self.ps_cursor = (self.ps_cursor + 1) % n
-        elif key in ('left', 'h'):
+        elif key in ('up', 'k'):
             self.ps_cursor = (self.ps_cursor - 1) % n
         elif key == 'enter':
             chosen = self.ps_options[self.ps_cursor]
@@ -475,7 +475,7 @@ class AppModel(tea.Model):
         inner_w = w - 6   # panel border (2) + padding (2*2)
         max_label = max(10, inner_w - 5)  # 5 = len('  ▶  ')
 
-        if not shown:
+        if not shown and not (self.fb_dir / 'conversations.json').exists():
             lines.append(muted_style.render('  (empty directory)'))
         for i, entry in enumerate(shown):
             idx = start + i
@@ -499,7 +499,7 @@ class AppModel(tea.Model):
                 lines.append(sel_style.render(f'  ▶  {opt}'))
             else:
                 lines.append(muted_style.render(f'     {opt}'))
-        lines += ['', self._footer('← → cycle   enter confirm   esc back')]
+        lines += ['', self._footer('↑↓ move   enter confirm   esc back')]
         return self._panel('\n'.join(lines))
     def _view_confirm(self) -> str:
         lines = [self._header('Confirm'), '']
