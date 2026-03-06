@@ -2,7 +2,7 @@
 from __future__ import annotations
 import enum
 import threading
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -88,7 +88,7 @@ def _load_settings() -> dict[str, str]:
         except Exception:
             pass
     return {
-        'output_dir':     './output',
+        'output_dir':     data.get('output', {}).get('dir', './output'),
         'user_name':      data.get('user', {}).get('name', ''),
         'assistant_name': '',
     }
@@ -113,6 +113,8 @@ def _save_settings(values: dict[str, str]) -> None:
         lines.append(f'name = "{data["user"].get("name", "")}"')
     for section, contents in data.items():
         if section == 'user':
+            continue
+        if not isinstance(contents, dict):
             continue
         lines.append(f'\n[{section}]')
         for k, v in contents.items():
