@@ -78,6 +78,10 @@ class _ClipboardMsg(tea.Msg):
 class _RunErrorMsg(tea.Msg):
     error: str
 
+@dataclass
+class _ExportSweepDoneMsg(tea.Msg):
+    count: int
+
 
 # ── Settings helpers ───────────────────────────────────────────────────────────
 def _load_settings() -> dict[str, str]:
@@ -324,6 +328,7 @@ class AppModel(tea.Model):
         self.es_values: dict[str, str] = es_defaults
         self.es_cursor: int = 0
         self.es_status: str = ''
+        self.es_running: bool = False
 
     def init(self) -> Optional[tea.Cmd]:
         return tea.window_size()
@@ -568,26 +573,54 @@ class AppModel(tea.Model):
             self.st_status = ''
         return self, None
     def _key_export_settings(self, msg):
+        n = len(self.es_fields)
+        save_idx = n        # [ Save ] button
+        run_idx  = n + 1    # [ Run Export ] button
+
+        if isinstance(msg, _ExportSweepDoneMsg):
+            self.es_running = False
+            self.es_status = f'Done — {msg.count} file(s) written.'
+            return self, None
+
         if not isinstance(msg, tea.KeyMsg):
             return self, None
         key = msg.key
-        n = len(self.es_fields)
-        save_idx = n  # Save button is after the fields
 
         if key == 'escape':
             self.screen = Screen.MAIN
             self.es_status = ''
         elif key in ('down', 'j'):
-            self.es_cursor = (self.es_cursor + 1) % (n + 1)
+            self.es_cursor = (self.es_cursor + 1) % (n + 2)
         elif key in ('up', 'k'):
-            self.es_cursor = (self.es_cursor - 1) % (n + 1)
+            self.es_cursor = (self.es_cursor - 1) % (n + 2)
         elif key == 'tab':
-            self.es_cursor = (self.es_cursor + 1) % (n + 1)
+            self.es_cursor = (self.es_cursor + 1) % (n + 2)
         elif key == 'shift+tab':
-            self.es_cursor = (self.es_cursor - 1) % (n + 1)
+            self.es_cursor = (self.es_cursor - 1) % (n + 2)
         elif self.es_cursor == save_idx and key in ('enter', ' '):
             _save_export_settings(self.es_values)
             self.es_status = 'Saved.'
+        elif self.es_cursor == run_idx and key in ('enter', ' ') and not self.es_running:
+            _save_export_settings(self.es_values)
+            self.es_running = True
+            self.es_status = 'Running…'
+            output_dir = Path(self.st_values.get('output_dir', './output')).expanduser()
+            program = self._program
+            db_path = self._db._path
+
+            def _do_sweep():
+                from config import load_export_config, load_db_path
+                from db import DatabaseManager
+                _db = DatabaseManager(db_path)
+                try:
+                    exp_cfg = load_export_config()
+                    count = _alternate_export_sweep(_db, output_dir, exp_cfg)
+                finally:
+                    _db.close()
+                if program:
+                    program.send(_ExportSweepDoneMsg(count=count))
+
+            threading.Thread(target=_do_sweep, daemon=True).start()
         elif self.es_cursor < n:
             field_key = self.es_fields[self.es_cursor]
             if field_key in self.es_toggle_fields:
@@ -977,15 +1010,21 @@ class AppModel(tea.Model):
 
         lines.append('')
         save_row = '  [ Save ]'
+        run_row  = '  [ Run Export ]' + ('  (running…)' if self.es_running else '')
+        run_idx = n + 1
         if self.es_cursor == save_idx:
             lines.append(sel_style.render(save_row))
         else:
             lines.append(muted_style.render(save_row))
+        if self.es_cursor == run_idx:
+            lines.append(sel_style.render(run_row))
+        else:
+            lines.append(muted_style.render(run_row))
 
         if self.es_status:
             lines += ['', success_style.render(f'  {self.es_status}')]
 
-        lines += ['', self._footer('↑↓ navigate   enter/space toggle or save   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter/space toggle / save / run   esc back')]
         return self._panel('\n'.join(lines))
 
     def _view_review_editor(self) -> str:
@@ -1195,6 +1234,63 @@ def _to_iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
+def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
+    """Generate alternate format files for every DB branch that has an md_filename.
+
+    Skips files that already exist so re-runs are fast.  Returns the number of
+    new files written.
+    """
+    if not (exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled):
+        return 0
+    count = 0
+    for row in db.list_branches():
+        md_filename = row.get('md_filename') or ''
+        if not md_filename:
+            continue
+        md_path = output_dir / md_filename
+        if not md_path.exists():
+            continue
+        try:
+            content = md_path.read_text(encoding='utf-8')
+        except OSError:
+            continue
+        stem = md_filename[:-3]  # strip .md
+        if exp_cfg.html_github_enabled:
+            try:
+                from html_github_exporter import export_html_github
+                html_dir = (Path(exp_cfg.html_github_dir).expanduser()
+                            if exp_cfg.html_github_dir else output_dir / 'html-github')
+                out = html_dir / f'{stem}.html'
+                if not out.exists():
+                    export_html_github(content, out)
+                    count += 1
+            except Exception:
+                pass
+        if exp_cfg.html_retro_enabled:
+            try:
+                from html_retro_exporter import export_html_retro
+                retro_dir = (Path(exp_cfg.html_retro_dir).expanduser()
+                             if exp_cfg.html_retro_dir else output_dir / 'html-retro')
+                out = retro_dir / f'{stem}.html'
+                if not out.exists():
+                    export_html_retro(content, out)
+                    count += 1
+            except Exception:
+                pass
+        if exp_cfg.docx_enabled:
+            try:
+                from docx_exporter import export_docx
+                docx_dir = (Path(exp_cfg.docx_dir).expanduser()
+                            if exp_cfg.docx_dir else output_dir / 'docx')
+                out = docx_dir / f'{stem}.docx'
+                if not out.exists():
+                    export_docx(content, out)
+                    count += 1
+            except Exception:
+                pass
+    return count
+
+
 def _run_alternate_exports(content: str, filename: str, st_values: dict, exp_cfg=None) -> None:
     """Run enabled alternate export formats (HTML/DOCX) for one branch."""
     if exp_cfg is None:
@@ -1359,6 +1455,12 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
 
                 if program:
                     program.send(_ProgressMsg(written=written, skipped=skipped, total=total))
+
+            # Post-import sweep: generate alternate formats for all DB branches
+            # (covers conversations that were skipped as already up-to-date)
+            if _exp_cfg:
+                _sweep_dir = Path(st_values.get('output_dir', './output')).expanduser()
+                _alternate_export_sweep(db, _sweep_dir, _exp_cfg)
 
             if program:
                 program.send(_DoneMsg(written=written, skipped=skipped))

@@ -204,6 +204,45 @@ def main():
                 from jsonl_exporter import export_jsonl
                 export_jsonl(db, args.export_jsonl, branch_mode=branch_cfg.export_jsonl)
                 print(f'JSONL exported to {args.export_jsonl}')
+            # Post-import sweep: generate alternate formats for all DB branches
+            # (covers conversations that were skipped as already up-to-date)
+            if exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled:
+                sweep_count = 0
+                for row in db.list_branches():
+                    md_filename = row.get('md_filename') or ''
+                    if not md_filename:
+                        continue
+                    md_path = args.output / md_filename
+                    if not md_path.exists():
+                        continue
+                    try:
+                        md_content = md_path.read_text(encoding='utf-8')
+                    except OSError:
+                        continue
+                    stem = md_filename[:-3]
+                    if exp_cfg.html_github_enabled:
+                        from html_github_exporter import export_html_github
+                        html_dir = Path(exp_cfg.html_github_dir).expanduser() if exp_cfg.html_github_dir else args.output / 'html-github'
+                        out = html_dir / f'{stem}.html'
+                        if not out.exists():
+                            export_html_github(md_content, out)
+                            sweep_count += 1
+                    if exp_cfg.html_retro_enabled:
+                        from html_retro_exporter import export_html_retro
+                        retro_dir = Path(exp_cfg.html_retro_dir).expanduser() if exp_cfg.html_retro_dir else args.output / 'html-retro'
+                        out = retro_dir / f'{stem}.html'
+                        if not out.exists():
+                            export_html_retro(md_content, out)
+                            sweep_count += 1
+                    if exp_cfg.docx_enabled:
+                        from docx_exporter import export_docx
+                        docx_dir = Path(exp_cfg.docx_dir).expanduser() if exp_cfg.docx_dir else args.output / 'docx'
+                        out = docx_dir / f'{stem}.docx'
+                        if not out.exists():
+                            export_docx(md_content, out)
+                            sweep_count += 1
+                if sweep_count:
+                    print(f'Alternate exports: {sweep_count} file(s) generated.')
             print(f'Done. Written: {written} file(s), skipped {skipped} up-to-date conversation(s).')
         else:
             total_would_write = sum(
