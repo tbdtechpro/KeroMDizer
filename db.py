@@ -149,13 +149,20 @@ class DatabaseManager:
         self._conn.commit()
 
     def get_all_tags(self) -> list[str]:
-        """Return sorted list of all unique user-applied tags (for autocomplete)."""
+        """Return sorted list of all unique tags for autocomplete.
+
+        Includes both user-applied tags and inferred_tags so suggestions
+        appear even before any manual tagging has been done.
+        """
         rows = self._conn.execute(
-            "SELECT tags FROM branches WHERE tags != '[]'"
+            'SELECT tags, inferred_tags FROM branches'
         ).fetchall()
         seen: set[str] = set()
         for row in rows:
             for tag in json.loads(row['tags']):
+                if tag:
+                    seen.add(tag)
+            for tag in json.loads(row['inferred_tags']):
                 if tag:
                     seen.add(tag)
         return sorted(seen)

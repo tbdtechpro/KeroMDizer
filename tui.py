@@ -429,8 +429,12 @@ class AppModel(tea.Model):
             self.run_done  = True
             return self, None
         if isinstance(msg, tea.KeyMsg):
-            if self.run_done and msg.key in ('enter', 'q'):
-                self.screen = Screen.MAIN
+            if self.run_done:
+                if msg.key in ('enter', 'q'):
+                    self.screen = Screen.MAIN
+                elif msg.key == 'n':
+                    self.screen = Screen.FOLDER_BROWSER
+                    self._fb_refresh()
         return self, None
     def _key_settings(self, msg):
         if not isinstance(msg, tea.KeyMsg):
@@ -612,7 +616,7 @@ class AppModel(tea.Model):
             lines.append(success_style.render(
                 f'Done!  Written: {self.run_written}  Skipped: {self.run_skipped}'
             ))
-            lines += ['', self._footer('enter / q  return to main')]
+            lines += ['', self._footer('enter / q  return to main   n new import')]
         else:
             total_str = f'/{self.run_total}' if self.run_total else ''
             lines.append(f'  Written:  {self.run_written}{total_str}')
@@ -703,10 +707,11 @@ class AppModel(tea.Model):
             return self._panel('\n'.join(lines))
 
         w = min(self.width - 4, 80)
-        title_w = max(20, w - 32)
+        meta_w = 14
+        title_w = max(20, w - 26 - meta_w)  # 26 = indent(2)+date(12)+provider(10)+spacing(2)
 
         # Column headers
-        header = f'  {"Date":<12}{"Provider":<10}{"Title":<{title_w}}'
+        header = f'  {"Date":<12}{"Provider":<10}{"Title":<{title_w}}  {"Tags":<{meta_w}}'
         lines.append(muted_style.render(header))
         lines.append(muted_style.render('  ' + '─' * (w - 4)))
 
@@ -715,6 +720,7 @@ class AppModel(tea.Model):
         start = max(0, start)
         shown = self.rv_rows[start:start + visible]
 
+        reviewed_style = lipgloss.Style().foreground(C_GREEN)
         for i, row in enumerate(shown):
             idx = start + i
             date_str = (row.get('conv_create_time') or '')[:10]
@@ -722,10 +728,23 @@ class AppModel(tea.Model):
             title = (row.get('title') or 'Untitled')
             if len(title) > title_w - 1:
                 title = title[:title_w - 2] + '…'
-            tag_indicator = ' [tagged]' if row.get('tags') else ''
-            cell = f'  {date_str:<12}{provider:<10}{title}{tag_indicator}'
+            tags = row.get('tags') or []
+            project = row.get('project') or ''
+            category = row.get('category') or ''
+            is_reviewed = bool(tags or project or category)
+            if tags:
+                tag_summary = ', '.join(tags)
+            elif project:
+                tag_summary = f'[{project}]'
+            else:
+                tag_summary = ''
+            if len(tag_summary) > meta_w:
+                tag_summary = tag_summary[:meta_w - 1] + '…'
+            cell = f'  {date_str:<12}{provider:<10}{title:<{title_w}}  {tag_summary:<{meta_w}}'
             if idx == self.rv_cursor:
                 lines.append(sel_style.render(cell))
+            elif is_reviewed:
+                lines.append(reviewed_style.render(cell))
             else:
                 lines.append(lipgloss.Style().foreground(C_TEXT).render(cell))
 
