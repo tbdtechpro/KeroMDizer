@@ -727,7 +727,7 @@ class AppModel(tea.Model):
             if idx == self.rv_cursor:
                 lines.append(sel_style.render(cell))
             else:
-                lines.append(cell)
+                lines.append(lipgloss.Style().foreground(C_TEXT).render(cell))
 
         lines += ['', self._footer('↑↓ navigate   enter edit tags   esc back')]
         return self._panel('\n'.join(lines))
