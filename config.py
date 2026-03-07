@@ -11,6 +11,17 @@ PROVIDER_DEFAULTS: dict[str, str] = {
 }
 
 
+def _load_toml() -> dict:
+    """Load ~/.keromdizer.toml, returning empty dict if file missing."""
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(CONFIG_PATH, 'rb') as f:
+            return tomllib.load(f)
+    except tomllib.TOMLDecodeError as e:
+        raise ValueError(f'Error parsing {CONFIG_PATH}: {e}') from e
+
+
 def load_persona(
     provider: str = 'chatgpt',
     user_name: str | None = None,
@@ -24,14 +35,7 @@ def load_persona(
       3. Provider default from PROVIDER_DEFAULTS
       4. 'User' / 'Assistant' (absolute fallback)
     """
-    data: dict[str, object] = {}
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH, 'rb') as f:
-                data = tomllib.load(f)
-        except tomllib.TOMLDecodeError as e:
-            raise ValueError(f'Error parsing {CONFIG_PATH}: {e}') from e
-
+    data = _load_toml()
     resolved_user = (user_name.strip() if user_name is not None else None) or (
         data.get('user', {}).get('name') or 'User'
     )
@@ -44,13 +48,7 @@ def load_persona(
 
 def load_branch_config() -> BranchConfig:
     """Load branch handling config from ~/.keromdizer.toml."""
-    data: dict = {}
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH, 'rb') as f:
-                data = tomllib.load(f)
-        except tomllib.TOMLDecodeError:
-            pass
+    data = _load_toml()
     b = data.get('branches', {})
     return BranchConfig(
         import_branches=b.get('import', 'all'),
@@ -61,13 +59,7 @@ def load_branch_config() -> BranchConfig:
 
 def load_db_path() -> Path:
     """Return configured DB path, defaulting to ~/.keromdizer.db."""
-    data: dict = {}
-    if CONFIG_PATH.exists():
-        try:
-            with open(CONFIG_PATH, 'rb') as f:
-                data = tomllib.load(f)
-        except tomllib.TOMLDecodeError:
-            pass
+    data = _load_toml()
     raw = data.get('database', {}).get('path', '')
     if raw:
         return Path(raw).expanduser()

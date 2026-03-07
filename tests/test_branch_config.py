@@ -1,5 +1,6 @@
 import pytest
 from pathlib import Path
+import config
 from models import BranchConfig
 from config import load_branch_config, load_db_path
 
@@ -12,7 +13,7 @@ def test_branch_config_defaults():
 
 
 def test_load_branch_config_defaults(tmp_path, monkeypatch):
-    monkeypatch.setattr('config.CONFIG_PATH', tmp_path / 'nonexistent.toml')
+    monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
     cfg = load_branch_config()
     assert cfg.import_branches == 'all'
     assert cfg.export_markdown == 'all'
@@ -25,7 +26,7 @@ def test_load_branch_config_from_toml(tmp_path, monkeypatch):
         '[branches]\nimport = "main"\nexport_markdown = "all"\nexport_jsonl = "main"\n',
         encoding='utf-8'
     )
-    monkeypatch.setattr('config.CONFIG_PATH', toml)
+    monkeypatch.setattr(config, 'CONFIG_PATH', toml)
     cfg = load_branch_config()
     assert cfg.import_branches == 'main'
     assert cfg.export_markdown == 'all'
@@ -33,7 +34,7 @@ def test_load_branch_config_from_toml(tmp_path, monkeypatch):
 
 
 def test_load_db_path_default(tmp_path, monkeypatch):
-    monkeypatch.setattr('config.CONFIG_PATH', tmp_path / 'nonexistent.toml')
+    monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
     p = load_db_path()
     assert p == Path.home() / '.keromdizer.db'
 
@@ -41,6 +42,31 @@ def test_load_db_path_default(tmp_path, monkeypatch):
 def test_load_db_path_from_toml(tmp_path, monkeypatch):
     toml = tmp_path / '.keromdizer.toml'
     toml.write_text('[database]\npath = "/tmp/test.db"\n', encoding='utf-8')
-    monkeypatch.setattr('config.CONFIG_PATH', toml)
+    monkeypatch.setattr(config, 'CONFIG_PATH', toml)
     p = load_db_path()
     assert p == Path('/tmp/test.db')
+
+
+def test_load_branch_config_raises_on_bad_toml(tmp_path, monkeypatch):
+    toml = tmp_path / '.keromdizer.toml'
+    toml.write_text('this is not valid toml ::::', encoding='utf-8')
+    monkeypatch.setattr(config, 'CONFIG_PATH', toml)
+    with pytest.raises(ValueError, match='Error parsing'):
+        load_branch_config()
+
+
+def test_load_db_path_raises_on_bad_toml(tmp_path, monkeypatch):
+    toml = tmp_path / '.keromdizer.toml'
+    toml.write_text('this is not valid toml ::::', encoding='utf-8')
+    monkeypatch.setattr(config, 'CONFIG_PATH', toml)
+    with pytest.raises(ValueError, match='Error parsing'):
+        load_db_path()
+
+
+def test_load_db_path_expands_tilde(tmp_path, monkeypatch):
+    toml = tmp_path / '.keromdizer.toml'
+    toml.write_text('[database]\npath = "~/mydir/kero.db"\n', encoding='utf-8')
+    monkeypatch.setattr(config, 'CONFIG_PATH', toml)
+    p = load_db_path()
+    assert not str(p).startswith('~')
+    assert 'mydir/kero.db' in str(p)
