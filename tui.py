@@ -706,11 +706,10 @@ class AppModel(tea.Model):
             return self._panel('\n'.join(lines))
 
         w = min(self.width - 4, 80)
-        meta_w = 14
-        title_w = max(20, w - 26 - meta_w)  # 26 = indent(2)+date(12)+provider(10)+spacing(2)
+        title_w = max(20, w - 32)
 
         # Column headers
-        header = f'  {"Date":<12}{"Provider":<10}{"Title":<{title_w}}  {"Tags":<{meta_w}}'
+        header = f'  {"Date":<12}{"Provider":<10}{"Title":<{title_w}}'
         lines.append(muted_style.render(header))
         lines.append(muted_style.render('  ' + '─' * (w - 4)))
 
@@ -727,19 +726,8 @@ class AppModel(tea.Model):
             title = (row.get('title') or 'Untitled')
             if len(title) > title_w - 1:
                 title = title[:title_w - 2] + '…'
-            tags = row.get('tags') or []
-            project = row.get('project') or ''
-            category = row.get('category') or ''
-            is_reviewed = bool(tags or project or category)
-            if tags:
-                tag_summary = ', '.join(tags)
-            elif project:
-                tag_summary = f'[{project}]'
-            else:
-                tag_summary = ''
-            if len(tag_summary) > meta_w:
-                tag_summary = tag_summary[:meta_w - 1] + '…'
-            cell = f'  {date_str:<12}{provider:<10}{title:<{title_w}}  {tag_summary:<{meta_w}}'
+            is_reviewed = bool(row.get('tags') or row.get('project') or row.get('category'))
+            cell = f'  {date_str:<12}{provider:<10}{title}'
             if idx == self.rv_cursor:
                 lines.append(sel_style.render(cell))
             elif is_reviewed:
