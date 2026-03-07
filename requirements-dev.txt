@@ -3,3 +3,4 @@ git+https://github.com/tbdtechpro/bubbletea.git
 git+https://github.com/tbdtechpro/lipgloss.git
 yake
 pygments
+python-docx
