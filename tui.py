@@ -957,7 +957,7 @@ class AppModel(tea.Model):
         self.vw_offset = 0
 
         md_filename = row.get('md_filename') or ''
-        output_dir = Path(self.st_values.get('output_dir', './output'))
+        output_dir = Path(self.st_values.get('output_dir', './output')).expanduser()
         md_path = output_dir / md_filename if md_filename else None
 
         if md_path and md_path.exists():
@@ -972,7 +972,7 @@ class AppModel(tea.Model):
         inner_w = min(self.width - 8, 68)  # panel border (2) + padding (2*2) + buffer
         sio = io.StringIO()
         console = Console(file=sio, width=inner_w, highlight=False,
-                          markup=False, no_color=False)
+                          markup=False, no_color=True)
         console.print(Markdown(md_content))
         rendered = sio.getvalue()
         self.vw_lines = rendered.splitlines()
