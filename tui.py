@@ -51,6 +51,7 @@ class Screen(enum.Enum):
     REVIEW          = 'review'
     SEARCH          = 'search'
     VIEWER          = 'viewer'
+    EXPORT_SETTINGS = 'export_settings'
 
 
 # ── Custom messages ────────────────────────────────────────────────────────────
@@ -148,6 +149,57 @@ def _save_settings(values: dict[str, str]) -> None:
     toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
 
 
+def _load_export_settings() -> dict[str, str]:
+    """Load current export settings from TOML or return defaults."""
+    import tomllib
+    toml_path = Path.home() / '.keromdizer.toml'
+    data: dict = {}
+    if toml_path.exists():
+        try:
+            with open(toml_path, 'rb') as f:
+                data = tomllib.load(f)
+        except Exception:
+            pass
+    e = data.get('exports', {})
+    return {
+        'html_github_enabled': e.get('html_github', 'no'),
+        'html_github_dir':     e.get('html_github_dir', ''),
+        'html_retro_enabled':  e.get('html_retro', 'no'),
+        'html_retro_dir':      e.get('html_retro_dir', ''),
+        'docx_enabled':        e.get('docx', 'no'),
+        'docx_dir':            e.get('docx_dir', ''),
+    }
+
+
+def _save_export_settings(values: dict[str, str]) -> None:
+    """Persist export settings to ~/.keromdizer.toml."""
+    import tomllib
+    toml_path = Path.home() / '.keromdizer.toml'
+    data: dict = {}
+    if toml_path.exists():
+        try:
+            with open(toml_path, 'rb') as f:
+                data = tomllib.load(f)
+        except Exception:
+            pass
+    exports: dict[str, str] = {}
+    for key in ('html_github_enabled', 'html_github_dir',
+                'html_retro_enabled', 'html_retro_dir',
+                'docx_enabled', 'docx_dir'):
+        v = values.get(key, '')
+        if v:
+            # Map field names to TOML keys
+            toml_key = {
+                'html_github_enabled': 'html_github',
+                'html_retro_enabled':  'html_retro',
+                'docx_enabled':        'docx',
+            }.get(key, key)
+            exports[toml_key] = v
+    if exports:
+        data['exports'] = exports
+    toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
+
+
 def _cmd_clipboard(program: Optional['tea.Program']) -> None:
     """Spawn daemon thread to read clipboard and send _ClipboardMsg."""
     def _run():
@@ -175,7 +227,7 @@ class AppModel(tea.Model):
 
         # MAIN
         self.menu_cursor: int = 0
-        self.menu_items: list[str] = ['Import', 'Settings', 'Review', 'Search']
+        self.menu_items: list[str] = ['Import', 'Settings', 'Export Settings', 'Review', 'Search']
 
         # FOLDER_BROWSER
         self.fb_dir: Path = Path.home()
@@ -253,6 +305,26 @@ class AppModel(tea.Model):
         self.st_cursor: int = 0
         self.st_status: str = ''
 
+        # EXPORT SETTINGS
+        es_defaults = _load_export_settings()
+        self.es_fields: list[str] = [
+            'html_github_enabled', 'html_github_dir',
+            'html_retro_enabled', 'html_retro_dir',
+            'docx_enabled', 'docx_dir',
+        ]
+        self.es_labels: dict[str, str] = {
+            'html_github_enabled': 'HTML (GitHub style)',
+            'html_github_dir':     'HTML GitHub output dir',
+            'html_retro_enabled':  'HTML (Retro 1994)',
+            'html_retro_dir':      'HTML Retro output dir',
+            'docx_enabled':        'DOCX (Word document)',
+            'docx_dir':            'DOCX output dir',
+        }
+        self.es_toggle_fields: set[str] = {'html_github_enabled', 'html_retro_enabled', 'docx_enabled'}
+        self.es_values: dict[str, str] = es_defaults
+        self.es_cursor: int = 0
+        self.es_status: str = ''
+
     def init(self) -> Optional[tea.Cmd]:
         return tea.window_size()
 
@@ -272,6 +344,7 @@ class AppModel(tea.Model):
             Screen.REVIEW:          self._key_review,
             Screen.SEARCH:          self._key_search,
             Screen.VIEWER:          self._key_viewer,
+            Screen.EXPORT_SETTINGS: self._key_export_settings,
         }
         handler = dispatch.get(self.screen)
         if handler:
@@ -289,6 +362,7 @@ class AppModel(tea.Model):
             Screen.REVIEW:          self._view_review,
             Screen.SEARCH:          self._view_search,
             Screen.VIEWER:          self._view_viewer,
+            Screen.EXPORT_SETTINGS: self._view_export_settings,
         }
         return views[self.screen]() + '\n'
 
@@ -318,7 +392,7 @@ class AppModel(tea.Model):
         elif msg.key == 'q':
             return self, tea.quit_cmd
         elif msg.key == 'enter':
-            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.REVIEW, Screen.SEARCH]
+            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.EXPORT_SETTINGS, Screen.REVIEW, Screen.SEARCH]
             self.screen = dest[self.menu_cursor]
             if self.screen == Screen.FOLDER_BROWSER:
                 self._start_new_import()
@@ -493,6 +567,44 @@ class AppModel(tea.Model):
                     self.st_values[field_key] = current + key
             self.st_status = ''
         return self, None
+    def _key_export_settings(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+        n = len(self.es_fields)
+        save_idx = n  # Save button is after the fields
+
+        if key == 'escape':
+            self.screen = Screen.MAIN
+            self.es_status = ''
+        elif key in ('down', 'j'):
+            self.es_cursor = (self.es_cursor + 1) % (n + 1)
+        elif key in ('up', 'k'):
+            self.es_cursor = (self.es_cursor - 1) % (n + 1)
+        elif key == 'tab':
+            self.es_cursor = (self.es_cursor + 1) % (n + 1)
+        elif key == 'shift+tab':
+            self.es_cursor = (self.es_cursor - 1) % (n + 1)
+        elif self.es_cursor == save_idx and key in ('enter', ' '):
+            _save_export_settings(self.es_values)
+            self.es_status = 'Saved.'
+        elif self.es_cursor < n:
+            field_key = self.es_fields[self.es_cursor]
+            if field_key in self.es_toggle_fields:
+                if key in ('enter', ' '):
+                    current = self.es_values.get(field_key, 'no')
+                    self.es_values[field_key] = 'no' if current == 'yes' else 'yes'
+            else:
+                current = self.es_values.get(field_key, '')
+                if key == 'backspace':
+                    self.es_values[field_key] = current[:-1]
+                elif key == 'ctrl+u':
+                    self.es_values[field_key] = ''
+                elif len(key) == 1:
+                    self.es_values[field_key] = current + key
+            self.es_status = ''
+        return self, None
+
     def _key_review(self, msg):
         if not isinstance(msg, tea.KeyMsg):
             return self, None
@@ -839,6 +951,41 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
         return self._panel('\n'.join(lines))
+    def _view_export_settings(self) -> str:
+        lines = [self._header('Export Settings'), '']
+        n = len(self.es_fields)
+        save_idx = n
+
+        for i, field_key in enumerate(self.es_fields):
+            label = self.es_labels[field_key]
+            value = self.es_values.get(field_key, '')
+            focused = self.es_cursor == i
+
+            if field_key in self.es_toggle_fields:
+                display = f'[ {"yes" if value == "yes" else "no "} ]'
+                row = f'  {label:<30} {display}'
+            else:
+                cursor_char = '\u2588' if focused else ''
+                row = f'  {label:<30} {value}{cursor_char}'
+
+            if focused:
+                lines.append(sel_style.render(row))
+            else:
+                lines.append(muted_style.render(row))
+
+        lines.append('')
+        save_row = '  [ Save ]'
+        if self.es_cursor == save_idx:
+            lines.append(sel_style.render(save_row))
+        else:
+            lines.append(muted_style.render(save_row))
+
+        if self.es_status:
+            lines += ['', success_style.render(f'  {self.es_status}')]
+
+        lines += ['', self._footer('↑↓ navigate   enter/space toggle or save   esc back')]
+        return self._panel('\n'.join(lines))
+
     def _view_review_editor(self) -> str:
         row = self.rv_rows[self.rv_cursor]
         title = (row.get('title') or 'Untitled')[:40]
@@ -1046,6 +1193,40 @@ def _to_iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
+def _run_alternate_exports(content: str, filename: str, st_values: dict) -> None:
+    """Run enabled alternate export formats (HTML/DOCX) for one branch."""
+    try:
+        from config import load_export_config
+        exp_cfg = load_export_config()
+    except Exception:
+        return
+    base_output = Path(st_values.get('output_dir', './output')).expanduser()
+
+    if exp_cfg.html_github_enabled:
+        try:
+            from html_github_exporter import export_html_github
+            html_dir = Path(exp_cfg.html_github_dir).expanduser() if exp_cfg.html_github_dir else base_output / 'html-github'
+            export_html_github(content, html_dir / filename.replace('.md', '.html'))
+        except Exception:
+            pass
+
+    if exp_cfg.html_retro_enabled:
+        try:
+            from html_retro_exporter import export_html_retro
+            retro_dir = Path(exp_cfg.html_retro_dir).expanduser() if exp_cfg.html_retro_dir else base_output / 'html-retro'
+            export_html_retro(content, retro_dir / filename.replace('.md', '.html'))
+        except Exception:
+            pass
+
+    if exp_cfg.docx_enabled:
+        try:
+            from docx_exporter import export_docx
+            docx_dir = Path(exp_cfg.docx_dir).expanduser() if exp_cfg.docx_dir else base_output / 'docx'
+            export_docx(content, docx_dir / filename.replace('.md', '.docx'))
+        except Exception:
+            pass
+
+
 def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['tea.Program']) -> None:
     """Run conversion pipeline in background daemon thread.
 
@@ -1150,6 +1331,8 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                     filename = file_mgr.make_filename(conv, branch)
                     file_mgr.write(filename, content)
                     db_branch['md_filename'] = filename
+                    # Alternate export formats (if enabled in export settings)
+                    _run_alternate_exports(content, filename, st_values)
                     written += 1
 
                 if db_branches:

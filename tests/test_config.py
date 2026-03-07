@@ -99,3 +99,14 @@ def test_load_persona_malformed_toml_raises_value_error(monkeypatch, tmp_path):
     monkeypatch.setattr(config, 'CONFIG_PATH', cfg)
     with pytest.raises(ValueError, match='Error parsing'):
         config.load_persona()
+
+
+def test_load_export_config_defaults(monkeypatch, tmp_path):
+    """load_export_config returns all-disabled defaults when no TOML exists."""
+    from config import load_export_config
+    monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
+    cfg = load_export_config()
+    assert cfg.html_github_enabled is False
+    assert cfg.html_retro_enabled is False
+    assert cfg.docx_enabled is False
+    assert cfg.html_github_dir == ''

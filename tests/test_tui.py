@@ -49,7 +49,7 @@ def test_main_cursor_moves_up():
 
 def test_main_cursor_wraps_down():
     m = AppModel()
-    m.menu_cursor = 3  # last item
+    m.menu_cursor = 4  # last item
     m, _ = m.update(tea.KeyMsg(key='down'))
     assert m.menu_cursor == 0
 
@@ -58,7 +58,7 @@ def test_main_cursor_wraps_up():
     m = AppModel()
     m.menu_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='up'))
-    assert m.menu_cursor == 3
+    assert m.menu_cursor == 4
 
 
 def test_main_q_quits():
@@ -83,7 +83,7 @@ def test_main_enter_settings_goes_to_settings():
 
 def test_main_enter_review_goes_to_review():
     m = AppModel()
-    m.menu_cursor = 2  # Review
+    m.menu_cursor = 3  # Review (was 2, now shifted by Export Settings)
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.screen == Screen.REVIEW
 
@@ -873,3 +873,40 @@ def test_review_enter_opens_viewer_not_editor():
     m.rv_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.screen == Screen.VIEWER
+
+
+# ── Export Settings tests ───────────────────────────────────────────────────────
+
+def test_export_settings_screen_in_enum():
+    assert hasattr(Screen, 'EXPORT_SETTINGS')
+
+
+def test_export_settings_initial_state():
+    m = AppModel()
+    assert hasattr(m, 'es_values')
+    assert 'html_github_enabled' in m.es_values
+    assert 'docx_enabled' in m.es_values
+
+
+def test_export_settings_accessible_from_main():
+    m = AppModel()
+    m.menu_cursor = m.menu_items.index('Export Settings')
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.EXPORT_SETTINGS
+
+
+def test_export_settings_toggle_html_github():
+    m = AppModel()
+    m.screen = Screen.EXPORT_SETTINGS
+    # Navigate to html_github_enabled (index 0)
+    m.es_cursor = 0
+    initial = m.es_values.get('html_github_enabled', 'no')
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.es_values['html_github_enabled'] != initial
+
+
+def test_export_settings_escape_goes_to_main():
+    m = AppModel()
+    m.screen = Screen.EXPORT_SETTINGS
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN

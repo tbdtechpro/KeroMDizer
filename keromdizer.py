@@ -3,7 +3,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-from config import load_persona, load_branch_config, load_db_path
+from config import load_persona, load_branch_config, load_db_path, load_export_config
 from parser_factory import build_parser
 from renderer import MarkdownRenderer
 from file_manager import FileManager
@@ -70,6 +70,7 @@ def main():
         sys.exit(1)
 
     branch_cfg = load_branch_config()
+    exp_cfg = load_export_config()
     db_path = load_db_path()
     db = DatabaseManager(db_path)
 
@@ -173,6 +174,18 @@ def main():
                     file_mgr.write(filename, content)
                     db_branch['md_filename'] = filename
                     written += 1
+                    if exp_cfg.html_github_enabled:
+                        from html_github_exporter import export_html_github
+                        html_dir = Path(exp_cfg.html_github_dir).expanduser() if exp_cfg.html_github_dir else args.output / 'html-github'
+                        export_html_github(content, html_dir / filename.replace('.md', '.html'))
+                    if exp_cfg.html_retro_enabled:
+                        from html_retro_exporter import export_html_retro
+                        retro_dir = Path(exp_cfg.html_retro_dir).expanduser() if exp_cfg.html_retro_dir else args.output / 'html-retro'
+                        export_html_retro(content, retro_dir / filename.replace('.md', '.html'))
+                    if exp_cfg.docx_enabled:
+                        from docx_exporter import export_docx
+                        docx_dir = Path(exp_cfg.docx_dir).expanduser() if exp_cfg.docx_dir else args.output / 'docx'
+                        export_docx(content, docx_dir / filename.replace('.md', '.docx'))
 
             if not args.dry_run and db_branches:
                 db.upsert_conversation(

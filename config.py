@@ -1,7 +1,7 @@
 import tomllib
 from pathlib import Path
 
-from models import PersonaConfig, BranchConfig
+from models import PersonaConfig, BranchConfig, ExportConfig
 
 CONFIG_PATH = Path.home() / '.keromdizer.toml'
 
@@ -64,3 +64,17 @@ def load_db_path() -> Path:
     if raw:
         return Path(raw).expanduser()
     return Path.home() / '.keromdizer.db'
+
+
+def load_export_config() -> ExportConfig:
+    """Load export format settings from ~/.keromdizer.toml."""
+    data = _load_toml()
+    e = data.get('exports', {})
+    return ExportConfig(
+        html_github_enabled=e.get('html_github', 'no') == 'yes',
+        html_github_dir=e.get('html_github_dir', ''),
+        html_retro_enabled=e.get('html_retro', 'no') == 'yes',
+        html_retro_dir=e.get('html_retro_dir', ''),
+        docx_enabled=e.get('docx', 'no') == 'yes',
+        docx_dir=e.get('docx_dir', ''),
+    )

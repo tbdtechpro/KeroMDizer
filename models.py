@@ -39,3 +39,13 @@ class BranchConfig:
     import_branches: str = 'all'   # 'main' | 'all'
     export_markdown: str = 'all'   # 'main' | 'all'
     export_jsonl: str = 'all'      # 'main' | 'all'
+
+
+@dataclass
+class ExportConfig:
+    html_github_enabled: bool = False
+    html_github_dir: str = ''
+    html_retro_enabled: bool = False
+    html_retro_dir: str = ''
+    docx_enabled: bool = False
+    docx_dir: str = ''
