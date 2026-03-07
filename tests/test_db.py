@@ -166,6 +166,53 @@ def test_get_all_tags_for_autocomplete(db):
     assert 'beta' in tags
 
 
+def test_tags_preserved_on_re_import(db):
+    """User-applied tags must survive a re-import of the same conversation."""
+    db.upsert_conversation(
+        conversation_id='conv-preserve',
+        provider='chatgpt',
+        title='Preserve',
+        create_time='2026-01-01T00:00:00+00:00',
+        update_time='2026-01-01T00:00:00+00:00',
+        model_slug=None,
+        branch_count=1,
+        branches=[{
+            'branch_id': 'conv-preserve__branch_1',
+            'branch_index': 1,
+            'is_main_branch': True,
+            'messages': [],
+            'inferred_tags': [],
+            'inferred_syntax': [],
+        }],
+    )
+    db.update_branch_tags('conv-preserve__branch_1', ['important', 'keep'], 'MyProject', 'research', [])
+
+    # Re-import with newer update_time (simulates updated conversation)
+    db.upsert_conversation(
+        conversation_id='conv-preserve',
+        provider='chatgpt',
+        title='Preserve Updated',
+        create_time='2026-01-01T00:00:00+00:00',
+        update_time='2026-01-14T00:00:00+00:00',
+        model_slug='gpt-4o',
+        branch_count=1,
+        branches=[{
+            'branch_id': 'conv-preserve__branch_1',
+            'branch_index': 1,
+            'is_main_branch': True,
+            'messages': [{'role': 'user', 'timestamp': None, 'content': []}],
+            'inferred_tags': ['new-inferred'],
+            'inferred_syntax': [],
+        }],
+    )
+
+    row = db.get_branch('conv-preserve__branch_1')
+    assert row['tags'] == ['important', 'keep']    # user tags preserved
+    assert row['project'] == 'MyProject'           # user project preserved
+    assert row['category'] == 'research'           # user category preserved
+    assert row['inferred_tags'] == ['new-inferred'] # inferred tags updated
+
+
 def test_upsert_overwrites_existing(db):
     for update_time in ['2026-01-01T00:00:00+00:00', '2026-01-14T00:00:00+00:00']:
         db.upsert_conversation(

@@ -120,7 +120,7 @@ class DatabaseManager:
         self,
         main_only: bool = False,
         offset: int = 0,
-        limit: int = 500,
+        limit: int = 10000,
     ) -> list[dict]:
         q = '''SELECT b.branch_id, b.conversation_id, b.branch_index, b.is_main_branch,
                       b.messages, b.tags, b.project, b.category, b.syntax,

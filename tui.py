@@ -804,6 +804,15 @@ def _cmd_scan(folder: Path, provider: str, program: Optional['tea.Program']) -> 
     threading.Thread(target=_run, daemon=True).start()
 
 
+def _to_iso(ts):
+    from datetime import datetime, timezone
+    if ts is None:
+        return None
+    if isinstance(ts, str):
+        return ts
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
+
+
 def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['tea.Program']) -> None:
     """Run conversion pipeline in background daemon thread.
 
@@ -811,21 +820,27 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
     Not a tea.Cmd — spawns thread directly as a side effect.
     """
     def _worker():
+        from config import load_db_path
+        from db import DatabaseManager
+        db = DatabaseManager(load_db_path())
         try:
             from parser_factory import build_parser
             from renderer import MarkdownRenderer
             from file_manager import FileManager
-            from config import load_persona
+            from config import load_persona, load_branch_config
+            from content_parser import parse_content
+            from inference import infer_tags, infer_syntax, build_full_text
 
             output_dir = Path(st_values.get('output_dir', './output'))
             parser, prov = build_parser(folder, source=provider)
             conversations = parser.parse()
             total = len(conversations)
 
+            branch_cfg = load_branch_config()
             persona = load_persona(
                 provider=prov,
                 user_name=st_values.get('user_name') or None,
-                assistant_name=st_values.get('assistant_name') or None,
+                assistant_name=st_values.get(f'{prov}_assistant') or None,
             )
             renderer = MarkdownRenderer(persona)
             file_mgr = FileManager(output_dir)
@@ -834,13 +849,22 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
             skipped = 0
 
             for conv in conversations:
-                if not file_mgr.needs_update(conv):
+                update_time_iso = _to_iso(conv.update_time)
+                if not db.needs_update(conv.id, update_time_iso or ''):
                     skipped += 1
                     if program:
                         program.send(_ProgressMsg(written=written, skipped=skipped, total=total))
                     continue
 
-                for branch in conv.branches:
+                # Filter branches by import config
+                branches_to_import = (
+                    [b for b in conv.branches if b.branch_index == 1]
+                    if branch_cfg.import_branches == 'main'
+                    else conv.branches
+                )
+
+                db_branches = []
+                for branch in branches_to_import:
                     # Resolve image refs (ChatGPT only; DeepSeek has none)
                     for msg in branch.messages:
                         resolved = {}
@@ -852,10 +876,58 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                             msg.text = msg.text.replace(
                                 f'assets/{old_id})', f'assets/{new_name})'
                             )
-                    content  = renderer.render(conv, branch)
+
+                    # Parse structured content and run inference
+                    all_segments = []
+                    msg_records = []
+                    for msg in branch.messages:
+                        segments = parse_content(msg.text)
+                        all_segments.extend(segments)
+                        msg_records.append({
+                            'role': msg.role,
+                            'timestamp': _to_iso(msg.create_time),
+                            'content': [
+                                {
+                                    'type': s.type,
+                                    'text': s.text,
+                                    **(({'language': s.language}) if s.language else {}),
+                                }
+                                for s in segments
+                            ],
+                        })
+
+                    full_text = build_full_text(all_segments)
+                    i_tags = infer_tags(full_text)
+                    i_syntax = infer_syntax(all_segments)
+
+                    db_branches.append({
+                        'branch_id': f'{conv.id}__branch_{branch.branch_index}',
+                        'branch_index': branch.branch_index,
+                        'is_main_branch': branch.branch_index == 1,
+                        'messages': msg_records,
+                        'inferred_tags': i_tags,
+                        'inferred_syntax': i_syntax,
+                    })
+
+                    # Write markdown (filtered by export_markdown config)
+                    if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
+                        continue
+                    content = renderer.render(conv, branch)
                     filename = file_mgr.make_filename(conv, branch)
                     file_mgr.write(filename, content)
                     written += 1
+
+                if db_branches:
+                    db.upsert_conversation(
+                        conversation_id=conv.id,
+                        provider=prov,
+                        title=conv.title,
+                        create_time=_to_iso(conv.create_time),
+                        update_time=update_time_iso,
+                        model_slug=conv.model_slug,
+                        branch_count=len(conv.branches),
+                        branches=db_branches,
+                    )
 
                 if program:
                     program.send(_ProgressMsg(written=written, skipped=skipped, total=total))
@@ -866,6 +938,8 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
         except Exception as e:
             if program:
                 program.send(_RunErrorMsg(error=str(e)))
+        finally:
+            db.close()
 
     threading.Thread(target=_worker, daemon=True).start()
 
@@ -879,6 +953,8 @@ def main() -> None:
         p.run()
     except (tea.ErrInterrupted, tea.ErrProgramKilled):
         pass
+    finally:
+        model._db.close()
 
 
 if __name__ == '__main__':
