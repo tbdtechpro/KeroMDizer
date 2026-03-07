@@ -231,7 +231,7 @@ class AppModel(tea.Model):
 
         # MAIN
         self.menu_cursor: int = 0
-        self.menu_items: list[str] = ['Import', 'Settings', 'Export Settings', 'Review', 'Search']
+        self.menu_items: list[str] = ['Import', 'Settings', 'Export', 'Review', 'Search']
 
         # FOLDER_BROWSER
         self.fb_dir: Path = Path.home()
@@ -988,7 +988,7 @@ class AppModel(tea.Model):
         lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
         return self._panel('\n'.join(lines))
     def _view_export_settings(self) -> str:
-        lines = [self._header('Export Settings'), '']
+        lines = [self._header('Export'), '']
         n = len(self.es_fields)
         save_idx = n
 

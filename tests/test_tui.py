@@ -904,7 +904,7 @@ def test_export_settings_initial_state():
 
 def test_export_settings_accessible_from_main():
     m = AppModel()
-    m.menu_cursor = m.menu_items.index('Export Settings')
+    m.menu_cursor = m.menu_items.index('Export')
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.screen == Screen.EXPORT_SETTINGS
 
