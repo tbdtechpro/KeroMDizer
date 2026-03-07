@@ -96,112 +96,113 @@ def main():
     written = 0
     skipped = 0
 
-    for conv in conversations:
-        update_time_iso = _to_iso(conv.update_time)
-        if not db.needs_update(conv.id, update_time_iso or ''):
-            skipped += 1
-            continue
-
-        # Filter branches by import config
-        branches_to_import = (
-            [b for b in conv.branches if b.branch_index == 1]
-            if branch_cfg.import_branches == 'main'
-            else conv.branches
-        )
-
-        db_branches = []
-        for branch in branches_to_import:
-            # Resolve image refs in messages (mutates msg.text)
-            for msg in branch.messages:
-                resolved = {}
-                for file_id in msg.image_refs:
-                    actual_name = file_mgr.copy_asset(args.export_folder, file_id)
-                    if actual_name:
-                        resolved[file_id] = actual_name
-                    else:
-                        print(f'Warning: image not found in export: {file_id}', file=sys.stderr)
-                for old_id, new_name in resolved.items():
-                    msg.text = msg.text.replace(
-                        f'assets/{old_id})', f'assets/{new_name})'
-                    )
-
-            # Parse structured content and run inference
-            all_segments = []
-            msg_records = []
-            for msg in branch.messages:
-                segments = parse_content(msg.text)
-                all_segments.extend(segments)
-                msg_records.append({
-                    'role': msg.role,
-                    'timestamp': _to_iso(msg.create_time),
-                    'content': [
-                        {
-                            'type': s.type,
-                            'text': s.text,
-                            **(({'language': s.language}) if s.language else {}),
-                        }
-                        for s in segments
-                    ],
-                })
-
-            full_text = build_full_text(all_segments)
-            i_tags = infer_tags(full_text)
-            i_syntax = infer_syntax(all_segments)
-
-            db_branches.append({
-                'branch_id': f'{conv.id}__branch_{branch.branch_index}',
-                'branch_index': branch.branch_index,
-                'is_main_branch': branch.branch_index == 1,
-                'messages': msg_records,
-                'inferred_tags': i_tags,
-                'inferred_syntax': i_syntax,
-            })
-
-            # Write markdown (filtered by export_markdown config)
-            if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
+    try:
+        for conv in conversations:
+            update_time_iso = _to_iso(conv.update_time)
+            if not db.needs_update(conv.id, update_time_iso or ''):
+                skipped += 1
                 continue
-            content = renderer.render(conv, branch)
-            filename = file_mgr.make_filename(conv, branch)
-            if args.dry_run:
-                branch_label = (
-                    f' (branch {branch.branch_index})' if len(conv.branches) > 1 else ''
-                )
-                print(f'  Would write: {args.output / filename}{branch_label}')
-            else:
-                file_mgr.write(filename, content)
-                written += 1
 
-        if not args.dry_run and db_branches:
-            db.upsert_conversation(
-                conversation_id=conv.id,
-                provider=provider,
-                title=conv.title,
-                create_time=_to_iso(conv.create_time),
-                update_time=update_time_iso,
-                model_slug=conv.model_slug,
-                branch_count=len(conv.branches),
-                branches=db_branches,
+            # Filter branches by import config
+            branches_to_import = (
+                [b for b in conv.branches if b.branch_index == 1]
+                if branch_cfg.import_branches == 'main'
+                else conv.branches
             )
 
-    if not args.dry_run:
-        if args.export_jsonl:
-            from jsonl_exporter import export_jsonl
-            export_jsonl(db, args.export_jsonl, branch_mode=branch_cfg.export_jsonl)
-            print(f'JSONL exported to {args.export_jsonl}')
-        print(f'Done. Written: {written} file(s), skipped {skipped} up-to-date conversation(s).')
-    else:
-        total_would_write = sum(
-            len([b for b in c.branches
-                 if branch_cfg.export_markdown == 'all' or b.branch_index == 1])
-            for c in conversations
-            if db.needs_update(c.id, _to_iso(c.update_time) or '')
-        )
-        print(
-            f'Dry run complete. Would write ~{total_would_write} file(s),'
-            f' skip {skipped} conversation(s).'
-        )
+            db_branches = []
+            for branch in branches_to_import:
+                # Resolve image refs in messages (mutates msg.text)
+                for msg in branch.messages:
+                    resolved = {}
+                    for file_id in msg.image_refs:
+                        actual_name = file_mgr.copy_asset(args.export_folder, file_id)
+                        if actual_name:
+                            resolved[file_id] = actual_name
+                        else:
+                            print(f'Warning: image not found in export: {file_id}', file=sys.stderr)
+                    for old_id, new_name in resolved.items():
+                        msg.text = msg.text.replace(
+                            f'assets/{old_id})', f'assets/{new_name})'
+                        )
 
-    db.close()
+                # Parse structured content and run inference
+                all_segments = []
+                msg_records = []
+                for msg in branch.messages:
+                    segments = parse_content(msg.text)
+                    all_segments.extend(segments)
+                    msg_records.append({
+                        'role': msg.role,
+                        'timestamp': _to_iso(msg.create_time),
+                        'content': [
+                            {
+                                'type': s.type,
+                                'text': s.text,
+                                **(({'language': s.language}) if s.language else {}),
+                            }
+                            for s in segments
+                        ],
+                    })
+
+                full_text = build_full_text(all_segments)
+                i_tags = infer_tags(full_text)
+                i_syntax = infer_syntax(all_segments)
+
+                db_branches.append({
+                    'branch_id': f'{conv.id}__branch_{branch.branch_index}',
+                    'branch_index': branch.branch_index,
+                    'is_main_branch': branch.branch_index == 1,
+                    'messages': msg_records,
+                    'inferred_tags': i_tags,
+                    'inferred_syntax': i_syntax,
+                })
+
+                # Write markdown (filtered by export_markdown config)
+                if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
+                    continue
+                content = renderer.render(conv, branch)
+                filename = file_mgr.make_filename(conv, branch)
+                if args.dry_run:
+                    branch_label = (
+                        f' (branch {branch.branch_index})' if len(conv.branches) > 1 else ''
+                    )
+                    print(f'  Would write: {args.output / filename}{branch_label}')
+                else:
+                    file_mgr.write(filename, content)
+                    written += 1
+
+            if not args.dry_run and db_branches:
+                db.upsert_conversation(
+                    conversation_id=conv.id,
+                    provider=provider,
+                    title=conv.title,
+                    create_time=_to_iso(conv.create_time),
+                    update_time=update_time_iso,
+                    model_slug=conv.model_slug,
+                    branch_count=len(conv.branches),
+                    branches=db_branches,
+                )
+
+        if not args.dry_run:
+            if args.export_jsonl:
+                from jsonl_exporter import export_jsonl
+                export_jsonl(db, args.export_jsonl, branch_mode=branch_cfg.export_jsonl)
+                print(f'JSONL exported to {args.export_jsonl}')
+            print(f'Done. Written: {written} file(s), skipped {skipped} up-to-date conversation(s).')
+        else:
+            total_would_write = sum(
+                len([b for b in c.branches
+                     if branch_cfg.export_markdown == 'all' or b.branch_index == 1])
+                for c in conversations
+                if db.needs_update(c.id, _to_iso(c.update_time) or '')
+            )
+            print(
+                f'Dry run complete. Would write ~{total_would_write} file(s),'
+                f' skip {skipped} conversation(s).'
+            )
+    finally:
+        db.close()
 
 
 if __name__ == '__main__':

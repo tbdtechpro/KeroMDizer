@@ -654,13 +654,12 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                             )
                     content  = renderer.render(conv, branch)
                     filename = file_mgr.make_filename(conv, branch)
-                    file_mgr.write(filename, content, conv)
+                    file_mgr.write(filename, content)
                     written += 1
 
                 if program:
                     program.send(_ProgressMsg(written=written, skipped=skipped, total=total))
 
-            file_mgr.save_manifest()
             if program:
                 program.send(_DoneMsg(written=written, skipped=skipped))
 
