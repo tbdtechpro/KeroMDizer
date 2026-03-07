@@ -914,14 +914,15 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                     i_tags = infer_tags(full_text)
                     i_syntax = infer_syntax(all_segments)
 
-                    db_branches.append({
+                    db_branch = {
                         'branch_id': f'{conv.id}__branch_{branch.branch_index}',
                         'branch_index': branch.branch_index,
                         'is_main_branch': branch.branch_index == 1,
                         'messages': msg_records,
                         'inferred_tags': i_tags,
                         'inferred_syntax': i_syntax,
-                    })
+                    }
+                    db_branches.append(db_branch)
 
                     # Write markdown (filtered by export_markdown config)
                     if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
@@ -929,6 +930,7 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                     content = renderer.render(conv, branch)
                     filename = file_mgr.make_filename(conv, branch)
                     file_mgr.write(filename, content)
+                    db_branch['md_filename'] = filename
                     written += 1
 
                 if db_branches:

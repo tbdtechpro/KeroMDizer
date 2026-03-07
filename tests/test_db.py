@@ -397,3 +397,27 @@ def test_md_filename_updated_on_reimport(tmp_path):
     )
     row = db.get_branch('conv-mdf2__branch_1')
     assert row['md_filename'] == 'new.md'
+
+
+def test_md_filename_stored_after_upsert(tmp_path):
+    db = DatabaseManager(tmp_path / 'test.db')
+    db.upsert_conversation(
+        conversation_id='conv-fn',
+        provider='chatgpt',
+        title='Filename Test',
+        create_time='2026-01-01T00:00:00+00:00',
+        update_time='2026-01-01T00:00:00+00:00',
+        model_slug=None,
+        branch_count=1,
+        branches=[{
+            'branch_id': 'conv-fn__branch_1',
+            'branch_index': 1,
+            'is_main_branch': True,
+            'messages': [],
+            'inferred_tags': [],
+            'inferred_syntax': [],
+            'md_filename': '2026-01-01_Filename_Test.md',
+        }],
+    )
+    row = db.get_branch('conv-fn__branch_1')
+    assert row['md_filename'] == '2026-01-01_Filename_Test.md'

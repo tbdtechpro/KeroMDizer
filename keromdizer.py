@@ -149,14 +149,15 @@ def main():
                 i_tags = infer_tags(full_text)
                 i_syntax = infer_syntax(all_segments)
 
-                db_branches.append({
+                db_branch = {
                     'branch_id': f'{conv.id}__branch_{branch.branch_index}',
                     'branch_index': branch.branch_index,
                     'is_main_branch': branch.branch_index == 1,
                     'messages': msg_records,
                     'inferred_tags': i_tags,
                     'inferred_syntax': i_syntax,
-                })
+                }
+                db_branches.append(db_branch)
 
                 # Write markdown (filtered by export_markdown config)
                 if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
@@ -170,6 +171,7 @@ def main():
                     print(f'  Would write: {args.output / filename}{branch_label}')
                 else:
                     file_mgr.write(filename, content)
+                    db_branch['md_filename'] = filename
                     written += 1
 
             if not args.dry_run and db_branches:
