@@ -4,7 +4,13 @@ import html
 import re
 from pathlib import Path
 
-from html_github_exporter import _prose_to_html, _section_to_html
+from html_github_exporter import _section_to_html
+
+try:
+    from pygments.formatters import HtmlFormatter as _HtmlFormatter
+    _PYGMENTS = True
+except ImportError:
+    _PYGMENTS = False
 
 
 RETRO_CSS = """\
@@ -59,12 +65,14 @@ def export_html_retro(md_content: str, output_path: Path) -> None:
     body = _md_to_retro_html(md_content)
     m = re.search(r'^# (.+)$', md_content, re.MULTILINE)
     title_text = html.escape(m.group(1)) if m else 'Conversation'
+    pygments_css = _HtmlFormatter().get_style_defs('.highlight') if _PYGMENTS else ''
     doc = f'''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
 <HTML>
 <HEAD>
   <META HTTP-EQUIV="Content-Type" CONTENT="text/html; charset=UTF-8">
   <TITLE>{title_text}</TITLE>
   <STYLE TYPE="text/css">{RETRO_CSS}</STYLE>
+  <STYLE TYPE="text/css">{pygments_css}</STYLE>
 </HEAD>
 <BODY>
 <CENTER><H1><SPAN CLASS="blink">&#9733;</SPAN> {title_text} <SPAN CLASS="blink">&#9733;</SPAN></H1></CENTER>

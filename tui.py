@@ -705,6 +705,8 @@ class AppModel(tea.Model):
                 self.ss_cursor = min(self.ss_cursor + 1, len(self.ss_results) - 1)
             elif key in ('up', 'k') and self.ss_results:
                 self.ss_cursor = max(self.ss_cursor - 1, 0)
+            elif key == 'enter' and self.ss_results:
+                self._open_viewer(self.ss_results[self.ss_cursor], return_screen=Screen.SEARCH)
 
         return self, None
 
@@ -1193,13 +1195,14 @@ def _to_iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _run_alternate_exports(content: str, filename: str, st_values: dict) -> None:
+def _run_alternate_exports(content: str, filename: str, st_values: dict, exp_cfg=None) -> None:
     """Run enabled alternate export formats (HTML/DOCX) for one branch."""
-    try:
-        from config import load_export_config
-        exp_cfg = load_export_config()
-    except Exception:
-        return
+    if exp_cfg is None:
+        try:
+            from config import load_export_config
+            exp_cfg = load_export_config()
+        except Exception:
+            return
     base_output = Path(st_values.get('output_dir', './output')).expanduser()
 
     if exp_cfg.html_github_enabled:
@@ -1261,6 +1264,13 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
 
             written = 0
             skipped = 0
+
+            # Load export config once for this run
+            try:
+                from config import load_export_config as _lec
+                _exp_cfg = _lec()
+            except Exception:
+                _exp_cfg = None
 
             for conv in conversations:
                 update_time_iso = _to_iso(conv.update_time)
@@ -1332,7 +1342,7 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                     file_mgr.write(filename, content)
                     db_branch['md_filename'] = filename
                     # Alternate export formats (if enabled in export settings)
-                    _run_alternate_exports(content, filename, st_values)
+                    _run_alternate_exports(content, filename, st_values, _exp_cfg)
                     written += 1
 
                 if db_branches:

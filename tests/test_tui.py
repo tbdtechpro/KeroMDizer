@@ -819,6 +819,20 @@ def test_search_menu_item_accessible():
     assert m.screen == Screen.SEARCH
 
 
+def test_search_enter_on_results_opens_viewer():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    m.ss_field = 3
+    m.ss_results = [{'branch_id': 'b1', 'title': 'Test', 'md_filename': '',
+                     'provider': 'chatgpt', 'conv_create_time': '2026-01-01',
+                     'tags': [], 'project': None, 'category': None,
+                     'syntax': [], 'inferred_tags': [], 'inferred_syntax': [],
+                     'is_main_branch': True, 'branch_index': 1}]
+    m.ss_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.VIEWER
+
+
 # ── VIEWER screen ────────────────────────────────────────────────────────────────
 
 def test_viewer_screen_in_enum():
