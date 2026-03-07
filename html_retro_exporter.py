@@ -4,7 +4,7 @@ import html
 import re
 from pathlib import Path
 
-from html_github_exporter import _prose_to_html, _section_to_html, _FENCE_RE
+from html_github_exporter import _prose_to_html, _section_to_html
 
 
 RETRO_CSS = """\
