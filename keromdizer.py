@@ -206,6 +206,8 @@ def main():
                 print(f'JSONL exported to {args.export_jsonl}')
             # Post-import sweep: generate alternate formats for all DB branches
             # (covers conversations that were skipped as already up-to-date)
+            # Backfill md_filename for branches imported before that column existed.
+            db.backfill_md_filenames(args.output)
             if exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled:
                 sweep_count = 0
                 for row in db.list_branches():

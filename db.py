@@ -225,6 +225,69 @@ class DatabaseManager:
                     seen.add(tag)
         return sorted(seen)
 
+    def backfill_md_filenames(self, output_dir) -> int:
+        """Scan output_dir for .md files and populate md_filename for branches that lack it.
+
+        Reads the title and Branch header from each .md file's first few lines, then
+        matches against conversations by title + date + branch_index.  Only updates
+        rows where md_filename is currently NULL or empty.  Returns number updated.
+        """
+        import re
+        from pathlib import Path as _Path
+
+        branch_re = re.compile(r'Branch (\d+) of \d+')
+        date_re   = re.compile(r'(\d{4}-\d{2}-\d{2})')
+
+        output_dir = _Path(output_dir)
+        try:
+            md_files = list(output_dir.glob('*.md'))
+        except OSError:
+            return 0
+
+        updated = 0
+        for md_path in md_files:
+            try:
+                with open(md_path, encoding='utf-8') as f:
+                    line1 = f.readline().rstrip('\n')  # "# Title"
+                    f.readline()                        # blank
+                    line3 = f.readline().rstrip('\n')  # "_date · model · Branch N of M_"
+            except OSError:
+                continue
+
+            if not line1.startswith('# '):
+                continue
+            title = line1[2:]
+
+            date_m = date_re.search(line3)
+            if not date_m:
+                continue
+            date_str = date_m.group(1)
+
+            branch_m = branch_re.search(line3)
+            branch_idx = int(branch_m.group(1)) if branch_m else 1
+
+            row = self._conn.execute(
+                '''SELECT b.branch_id FROM branches b
+                   JOIN conversations c ON b.conversation_id = c.conversation_id
+                   WHERE c.title = ?
+                     AND substr(c.create_time, 1, 10) = ?
+                     AND b.branch_index = ?
+                     AND (b.md_filename IS NULL OR b.md_filename = '')
+                   LIMIT 1''',
+                (title, date_str, branch_idx),
+            ).fetchone()
+
+            if row:
+                self._conn.execute(
+                    'UPDATE branches SET md_filename=? WHERE branch_id=?',
+                    (md_path.name, row['branch_id']),
+                )
+                updated += 1
+
+        if updated:
+            self._conn.commit()
+        return updated
+
     def close(self) -> None:
         self._conn.close()
 

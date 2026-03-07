@@ -613,6 +613,7 @@ class AppModel(tea.Model):
                 from db import DatabaseManager
                 _db = DatabaseManager(db_path)
                 try:
+                    _db.backfill_md_filenames(output_dir)
                     exp_cfg = load_export_config()
                     count = _alternate_export_sweep(_db, output_dir, exp_cfg)
                 finally:
@@ -813,8 +814,8 @@ class AppModel(tea.Model):
             lines.append('')
 
         if self.ss_searched and self.ss_results:
-            w = min(self.width - 4, 80)
-            title_w = max(20, w - 32)
+            w = min(self.width - 8, 68)
+            title_w = max(20, w - 24)
             visible = max(4, self.height - 18)
             start = max(0, min(self.ss_cursor - visible // 2, len(self.ss_results) - visible))
             start = max(0, start)
@@ -1080,13 +1081,14 @@ class AppModel(tea.Model):
             lines += ['', self._footer('esc back')]
             return self._panel('\n'.join(lines))
 
-        w = min(self.width - 4, 80)
-        title_w = max(20, w - 32)
+        # Use panel's actual content width (panel_w=72, padding=2+2) to avoid word-wrap overflow
+        w = min(self.width - 8, 68)
+        title_w = max(20, w - 24)  # 2(indent)+12(date)+10(provider)=24
 
         # Column headers
         header = f'  {"Date":<12}{"Provider":<10}{"Title":<{title_w}}'
         lines.append(muted_style.render(header))
-        lines.append(muted_style.render('  ' + '─' * (w - 4)))
+        lines.append(muted_style.render('  ' + '─' * (w - 2)))
 
         visible = max(4, self.height - 10)
         start = max(0, min(self.rv_cursor - visible // 2, len(self.rv_rows) - visible))
@@ -1146,6 +1148,17 @@ class AppModel(tea.Model):
 
         md_filename = row.get('md_filename') or ''
         output_dir = Path(self.st_values.get('output_dir', './output')).expanduser()
+
+        # If md_filename isn't set yet, try to backfill from output dir (covers
+        # branches imported before the md_filename column was added)
+        if not md_filename:
+            self._db.backfill_md_filenames(output_dir)
+            branch_id = row.get('branch_id', '')
+            refreshed = self._db.get_branch(branch_id)
+            if refreshed:
+                md_filename = refreshed.get('md_filename') or ''
+                row['md_filename'] = md_filename  # update in-memory row too
+
         md_path = output_dir / md_filename if md_filename else None
 
         if md_path and md_path.exists():
@@ -1458,8 +1471,10 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
 
             # Post-import sweep: generate alternate formats for all DB branches
             # (covers conversations that were skipped as already up-to-date)
+            # Backfill first so branches from before md_filename was added are included.
+            _sweep_dir = Path(st_values.get('output_dir', './output')).expanduser()
+            db.backfill_md_filenames(_sweep_dir)
             if _exp_cfg:
-                _sweep_dir = Path(st_values.get('output_dir', './output')).expanduser()
                 _alternate_export_sweep(db, _sweep_dir, _exp_cfg)
 
             if program:

@@ -421,3 +421,101 @@ def test_md_filename_stored_after_upsert(tmp_path):
     )
     row = db.get_branch('conv-fn__branch_1')
     assert row['md_filename'] == '2026-01-01_Filename_Test.md'
+
+
+def test_backfill_md_filenames_single_branch(tmp_path):
+    """backfill_md_filenames matches a .md file to a branch with NULL md_filename."""
+    db = DatabaseManager(tmp_path / 'test.db')
+    db.upsert_conversation(
+        conversation_id='conv-bf',
+        provider='chatgpt',
+        title='Backfill Test',
+        create_time='2026-02-01T00:00:00+00:00',
+        update_time='2026-02-01T00:00:00+00:00',
+        model_slug='gpt-4o',
+        branch_count=1,
+        branches=[{
+            'branch_id': 'conv-bf__branch_1',
+            'branch_index': 1,
+            'is_main_branch': True,
+            'messages': [],
+            'inferred_tags': [],
+            'inferred_syntax': [],
+        }],
+    )
+    # Write a .md file matching the renderer output format
+    md_dir = tmp_path / 'output'
+    md_dir.mkdir()
+    md_file = md_dir / '2026-02-01_Backfill_Test.md'
+    md_file.write_text('# Backfill Test\n\n_2026-02-01  ·  gpt-4o_\n\n---\n')
+
+    count = db.backfill_md_filenames(md_dir)
+    assert count == 1
+    row = db.get_branch('conv-bf__branch_1')
+    assert row['md_filename'] == '2026-02-01_Backfill_Test.md'
+
+
+def test_backfill_md_filenames_multi_branch(tmp_path):
+    """backfill correctly handles Branch N of M subheading."""
+    db = DatabaseManager(tmp_path / 'test.db')
+    for idx in (1, 2):
+        db.upsert_conversation(
+            conversation_id='conv-mb',
+            provider='chatgpt',
+            title='Multi Branch',
+            create_time='2026-03-01T00:00:00+00:00',
+            update_time='2026-03-01T00:00:00+00:00',
+            model_slug=None,
+            branch_count=2,
+            branches=[{
+                'branch_id': f'conv-mb__branch_{idx}',
+                'branch_index': idx,
+                'is_main_branch': idx == 1,
+                'messages': [],
+                'inferred_tags': [],
+                'inferred_syntax': [],
+            }],
+        )
+    md_dir = tmp_path / 'output'
+    md_dir.mkdir()
+    (md_dir / '2026-03-01_Multi_Branch.md').write_text(
+        '# Multi Branch\n\n_2026-03-01  ·  Branch 1 of 2_\n\n---\n'
+    )
+    (md_dir / '2026-03-01_Multi_Branch_branch-2.md').write_text(
+        '# Multi Branch\n\n_2026-03-01  ·  Branch 2 of 2_\n\n---\n'
+    )
+    count = db.backfill_md_filenames(md_dir)
+    assert count == 2
+    assert db.get_branch('conv-mb__branch_1')['md_filename'] == '2026-03-01_Multi_Branch.md'
+    assert db.get_branch('conv-mb__branch_2')['md_filename'] == '2026-03-01_Multi_Branch_branch-2.md'
+
+
+def test_backfill_skips_already_set(tmp_path):
+    """backfill does not overwrite an existing md_filename."""
+    db = DatabaseManager(tmp_path / 'test.db')
+    db.upsert_conversation(
+        conversation_id='conv-skip',
+        provider='chatgpt',
+        title='Skip Test',
+        create_time='2026-04-01T00:00:00+00:00',
+        update_time='2026-04-01T00:00:00+00:00',
+        model_slug=None,
+        branch_count=1,
+        branches=[{
+            'branch_id': 'conv-skip__branch_1',
+            'branch_index': 1,
+            'is_main_branch': True,
+            'messages': [],
+            'inferred_tags': [],
+            'inferred_syntax': [],
+            'md_filename': 'original.md',
+        }],
+    )
+    md_dir = tmp_path / 'output'
+    md_dir.mkdir()
+    (md_dir / '2026-04-01_Skip_Test.md').write_text(
+        '# Skip Test\n\n_2026-04-01_\n\n---\n'
+    )
+    count = db.backfill_md_filenames(md_dir)
+    assert count == 0
+    assert db.get_branch('conv-skip__branch_1')['md_filename'] == 'original.md'
