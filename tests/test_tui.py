@@ -49,7 +49,7 @@ def test_main_cursor_moves_up():
 
 def test_main_cursor_wraps_down():
     m = AppModel()
-    m.menu_cursor = 2  # last item
+    m.menu_cursor = 4  # last item
     m, _ = m.update(tea.KeyMsg(key='down'))
     assert m.menu_cursor == 0
 
@@ -58,7 +58,7 @@ def test_main_cursor_wraps_up():
     m = AppModel()
     m.menu_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='up'))
-    assert m.menu_cursor == 2
+    assert m.menu_cursor == 4
 
 
 def test_main_q_quits():
@@ -83,7 +83,7 @@ def test_main_enter_settings_goes_to_settings():
 
 def test_main_enter_review_goes_to_review():
     m = AppModel()
-    m.menu_cursor = 2  # Review
+    m.menu_cursor = 3  # Review (was 2, now shifted by Export Settings)
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.screen == Screen.REVIEW
 
@@ -693,12 +693,13 @@ def test_settings_save_includes_branch_config(tmp_path, monkeypatch):
 # ── REVIEW editor ──────────────────────────────────────────────────────────────
 
 def test_review_enter_opens_editor(monkeypatch):
+    """After Task 4, 'e' opens the editor (enter goes to viewer instead)."""
     rows = [_make_row('c1', 'Chat')]
     monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
     model = AppModel()
     model.screen = Screen.REVIEW
     model._load_review_data()
-    model, _ = model.update(tea.KeyMsg(key='enter'))
+    model, _ = model.update(tea.KeyMsg(key='e'))
     assert model.rv_editing is True
     view = model.view()
     assert 'Tags' in view
@@ -710,7 +711,7 @@ def test_review_editor_escape_returns_to_table(monkeypatch):
     model = AppModel()
     model.screen = Screen.REVIEW
     model._load_review_data()
-    model, _ = model.update(tea.KeyMsg(key='enter'))
+    model, _ = model.update(tea.KeyMsg(key='e'))
     assert model.rv_editing is True
     model, _ = model.update(tea.KeyMsg(key='escape'))
     assert model.rv_editing is False
@@ -722,7 +723,7 @@ def test_review_editor_typing_updates_tags_draft(monkeypatch):
     model = AppModel()
     model.screen = Screen.REVIEW
     model._load_review_data()
-    model, _ = model.update(tea.KeyMsg(key='enter'))
+    model, _ = model.update(tea.KeyMsg(key='e'))
     for ch in 'pyt':
         model, _ = model.update(tea.KeyMsg(key=ch))
     assert 'pyt' in model.rv_edit_values.get('tags_draft', '')
@@ -737,7 +738,7 @@ def test_review_editor_autocomplete_shown(monkeypatch):
     model = AppModel()
     model.screen = Screen.REVIEW
     model._load_review_data()
-    model, _ = model.update(tea.KeyMsg(key='enter'))
+    model, _ = model.update(tea.KeyMsg(key='e'))
     for ch in 'py':
         model, _ = model.update(tea.KeyMsg(key=ch))
     view = model.view()
@@ -755,9 +756,171 @@ def test_review_editor_ctrl_s_saves(monkeypatch):
     model = AppModel()
     model.screen = Screen.REVIEW
     model._load_review_data()
-    model, _ = model.update(tea.KeyMsg(key='enter'))
+    model, _ = model.update(tea.KeyMsg(key='e'))
     model.rv_edit_values['tags_draft'] = 'python, async'
     model, _ = model.update(tea.KeyMsg(key='ctrl+s'))
     assert saved.get('branch_id') == 'c1__branch_1'
     assert 'python' in saved.get('tags', [])
     assert 'async' in saved.get('tags', [])
+
+
+# ── SEARCH screen ───────────────────────────────────────────────────────────────
+
+def test_search_screen_in_enum():
+    assert hasattr(Screen, 'SEARCH')
+
+
+def test_search_initial_state():
+    m = AppModel()
+    assert m.ss_query == ''
+    assert m.ss_results == []
+    assert m.ss_searched == False
+    assert m.ss_field == 0
+
+
+def test_search_typing_updates_query():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    for ch in 'python':
+        m, _ = m.update(tea.KeyMsg(key=ch))
+    assert m.ss_query == 'python'
+
+
+def test_search_tab_cycles_fields():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    for _ in range(4):
+        m, _ = m.update(tea.KeyMsg(key='tab'))
+    assert m.ss_field == 0  # wrapped back to start
+
+
+def test_search_escape_from_results_goes_to_query():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    m.ss_field = 3
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.ss_field == 0
+    assert m.screen == Screen.SEARCH  # still on search screen
+
+
+def test_search_escape_from_query_goes_to_main():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    m.ss_field = 0
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN
+
+
+def test_search_menu_item_accessible():
+    m = AppModel()
+    assert 'Search' in m.menu_items
+    m.menu_cursor = m.menu_items.index('Search')
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.SEARCH
+
+
+def test_search_enter_on_results_opens_viewer():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    m.ss_field = 3
+    m.ss_results = [{'branch_id': 'b1', 'title': 'Test', 'md_filename': '',
+                     'provider': 'chatgpt', 'conv_create_time': '2026-01-01',
+                     'tags': [], 'project': None, 'category': None,
+                     'syntax': [], 'inferred_tags': [], 'inferred_syntax': [],
+                     'is_main_branch': True, 'branch_index': 1}]
+    m.ss_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.VIEWER
+
+
+# ── VIEWER screen ────────────────────────────────────────────────────────────────
+
+def test_viewer_screen_in_enum():
+    assert hasattr(Screen, 'VIEWER')
+
+
+def test_viewer_state_initialized():
+    m = AppModel()
+    assert m.vw_lines == []
+    assert m.vw_offset == 0
+    assert m.vw_row is None
+
+
+def test_viewer_scroll_down():
+    m = AppModel()
+    m.width, m.height = 80, 24
+    m.screen = Screen.VIEWER
+    m.vw_lines = [f'line {i}' for i in range(50)]
+    m.vw_row = {'title': 'Test', 'branch_id': 'x'}
+    m, _ = m.update(tea.KeyMsg(key='down'))
+    assert m.vw_offset == 1
+
+
+def test_viewer_scroll_clamps_at_top():
+    m = AppModel()
+    m.width, m.height = 80, 24
+    m.screen = Screen.VIEWER
+    m.vw_lines = [f'line {i}' for i in range(50)]
+    m.vw_row = {'title': 'Test', 'branch_id': 'x'}
+    m.vw_offset = 0
+    m, _ = m.update(tea.KeyMsg(key='up'))
+    assert m.vw_offset == 0  # clamped at 0
+
+
+def test_viewer_escape_returns_to_source_screen():
+    m = AppModel()
+    m.screen = Screen.VIEWER
+    m.vw_return_screen = Screen.SEARCH
+    m.vw_row = {'title': 'Test', 'branch_id': 'x'}
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.SEARCH
+
+
+def test_review_enter_opens_viewer_not_editor():
+    """After Task 4, enter on REVIEW goes to VIEWER, not directly to editor."""
+    m = AppModel()
+    m.screen = Screen.REVIEW
+    m.rv_rows = [{'branch_id': 'b1', 'title': 'Test', 'md_filename': '', 'provider': 'chatgpt',
+                  'conv_create_time': '2026-01-01', 'tags': [], 'project': None, 'category': None,
+                  'syntax': [], 'inferred_tags': [], 'inferred_syntax': [], 'is_main_branch': True,
+                  'branch_index': 1}]
+    m.rv_cursor = 0
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.VIEWER
+
+
+# ── Export Settings tests ───────────────────────────────────────────────────────
+
+def test_export_settings_screen_in_enum():
+    assert hasattr(Screen, 'EXPORT_SETTINGS')
+
+
+def test_export_settings_initial_state():
+    m = AppModel()
+    assert hasattr(m, 'es_values')
+    assert 'html_github_enabled' in m.es_values
+    assert 'docx_enabled' in m.es_values
+
+
+def test_export_settings_accessible_from_main():
+    m = AppModel()
+    m.menu_cursor = m.menu_items.index('Export Settings')
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.EXPORT_SETTINGS
+
+
+def test_export_settings_toggle_html_github():
+    m = AppModel()
+    m.screen = Screen.EXPORT_SETTINGS
+    # Navigate to html_github_enabled (index 0)
+    m.es_cursor = 0
+    initial = m.es_values.get('html_github_enabled', 'no')
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.es_values['html_github_enabled'] != initial
+
+
+def test_export_settings_escape_goes_to_main():
+    m = AppModel()
+    m.screen = Screen.EXPORT_SETTINGS
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN

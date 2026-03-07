@@ -49,6 +49,9 @@ class Screen(enum.Enum):
     RUN             = 'run'
     SETTINGS        = 'settings'
     REVIEW          = 'review'
+    SEARCH          = 'search'
+    VIEWER          = 'viewer'
+    EXPORT_SETTINGS = 'export_settings'
 
 
 # ── Custom messages ────────────────────────────────────────────────────────────
@@ -146,6 +149,57 @@ def _save_settings(values: dict[str, str]) -> None:
     toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
 
 
+def _load_export_settings() -> dict[str, str]:
+    """Load current export settings from TOML or return defaults."""
+    import tomllib
+    toml_path = Path.home() / '.keromdizer.toml'
+    data: dict = {}
+    if toml_path.exists():
+        try:
+            with open(toml_path, 'rb') as f:
+                data = tomllib.load(f)
+        except Exception:
+            pass
+    e = data.get('exports', {})
+    return {
+        'html_github_enabled': e.get('html_github', 'no'),
+        'html_github_dir':     e.get('html_github_dir', ''),
+        'html_retro_enabled':  e.get('html_retro', 'no'),
+        'html_retro_dir':      e.get('html_retro_dir', ''),
+        'docx_enabled':        e.get('docx', 'no'),
+        'docx_dir':            e.get('docx_dir', ''),
+    }
+
+
+def _save_export_settings(values: dict[str, str]) -> None:
+    """Persist export settings to ~/.keromdizer.toml."""
+    import tomllib
+    toml_path = Path.home() / '.keromdizer.toml'
+    data: dict = {}
+    if toml_path.exists():
+        try:
+            with open(toml_path, 'rb') as f:
+                data = tomllib.load(f)
+        except Exception:
+            pass
+    exports: dict[str, str] = {}
+    for key in ('html_github_enabled', 'html_github_dir',
+                'html_retro_enabled', 'html_retro_dir',
+                'docx_enabled', 'docx_dir'):
+        v = values.get(key, '')
+        if v:
+            # Map field names to TOML keys
+            toml_key = {
+                'html_github_enabled': 'html_github',
+                'html_retro_enabled':  'html_retro',
+                'docx_enabled':        'docx',
+            }.get(key, key)
+            exports[toml_key] = v
+    if exports:
+        data['exports'] = exports
+    toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
+
+
 def _cmd_clipboard(program: Optional['tea.Program']) -> None:
     """Spawn daemon thread to read clipboard and send _ClipboardMsg."""
     def _run():
@@ -173,7 +227,7 @@ class AppModel(tea.Model):
 
         # MAIN
         self.menu_cursor: int = 0
-        self.menu_items: list[str] = ['Import', 'Settings', 'Review']
+        self.menu_items: list[str] = ['Import', 'Settings', 'Export Settings', 'Review', 'Search']
 
         # FOLDER_BROWSER
         self.fb_dir: Path = Path.home()
@@ -205,6 +259,16 @@ class AppModel(tea.Model):
         from config import load_db_path
         self._db: DatabaseManager = DatabaseManager(load_db_path())
 
+        # SEARCH
+        self.ss_query: str = ''
+        self.ss_provider: str = ''     # '' = all, 'chatgpt', 'deepseek'
+        self.ss_syntax: str = ''
+        self.ss_field: int = 0         # 0=query, 1=provider, 2=syntax, 3=results
+        self.ss_results: list[dict] = []
+        self.ss_cursor: int = 0        # cursor within results list
+        self.ss_searched: bool = False
+        self.ss_status: str = ''
+
         # REVIEW
         self.rv_rows: list[dict] = []
         self.rv_cursor: int = 0
@@ -214,6 +278,12 @@ class AppModel(tea.Model):
         self.rv_autocomplete: list[str] = []
         self.rv_all_tags: list[str] = []
         self.rv_status: str = ''
+
+        # VIEWER
+        self.vw_lines: list[str] = []    # rendered content split into lines
+        self.vw_offset: int = 0           # scroll position
+        self.vw_row: dict | None = None   # source DB row (branch dict)
+        self.vw_return_screen: Screen = Screen.REVIEW  # which screen to go back to
 
         # SETTINGS
         st_defaults = _load_settings()
@@ -235,6 +305,26 @@ class AppModel(tea.Model):
         self.st_cursor: int = 0
         self.st_status: str = ''
 
+        # EXPORT SETTINGS
+        es_defaults = _load_export_settings()
+        self.es_fields: list[str] = [
+            'html_github_enabled', 'html_github_dir',
+            'html_retro_enabled', 'html_retro_dir',
+            'docx_enabled', 'docx_dir',
+        ]
+        self.es_labels: dict[str, str] = {
+            'html_github_enabled': 'HTML (GitHub style)',
+            'html_github_dir':     'HTML GitHub output dir',
+            'html_retro_enabled':  'HTML (Retro 1994)',
+            'html_retro_dir':      'HTML Retro output dir',
+            'docx_enabled':        'DOCX (Word document)',
+            'docx_dir':            'DOCX output dir',
+        }
+        self.es_toggle_fields: set[str] = {'html_github_enabled', 'html_retro_enabled', 'docx_enabled'}
+        self.es_values: dict[str, str] = es_defaults
+        self.es_cursor: int = 0
+        self.es_status: str = ''
+
     def init(self) -> Optional[tea.Cmd]:
         return tea.window_size()
 
@@ -252,6 +342,9 @@ class AppModel(tea.Model):
             Screen.RUN:             self._key_run,
             Screen.SETTINGS:        self._key_settings,
             Screen.REVIEW:          self._key_review,
+            Screen.SEARCH:          self._key_search,
+            Screen.VIEWER:          self._key_viewer,
+            Screen.EXPORT_SETTINGS: self._key_export_settings,
         }
         handler = dispatch.get(self.screen)
         if handler:
@@ -267,6 +360,9 @@ class AppModel(tea.Model):
             Screen.RUN:             self._view_run,
             Screen.SETTINGS:        self._view_settings,
             Screen.REVIEW:          self._view_review,
+            Screen.SEARCH:          self._view_search,
+            Screen.VIEWER:          self._view_viewer,
+            Screen.EXPORT_SETTINGS: self._view_export_settings,
         }
         return views[self.screen]() + '\n'
 
@@ -296,12 +392,13 @@ class AppModel(tea.Model):
         elif msg.key == 'q':
             return self, tea.quit_cmd
         elif msg.key == 'enter':
-            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.REVIEW]
+            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.EXPORT_SETTINGS, Screen.REVIEW, Screen.SEARCH]
             self.screen = dest[self.menu_cursor]
             if self.screen == Screen.FOLDER_BROWSER:
                 self._start_new_import()
             elif self.screen == Screen.REVIEW:
                 self._load_review_data()
+            # No setup needed for Search — state persists between visits
         return self, None
 
     def _key_folder_browser(self, msg):
@@ -470,6 +567,44 @@ class AppModel(tea.Model):
                     self.st_values[field_key] = current + key
             self.st_status = ''
         return self, None
+    def _key_export_settings(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+        n = len(self.es_fields)
+        save_idx = n  # Save button is after the fields
+
+        if key == 'escape':
+            self.screen = Screen.MAIN
+            self.es_status = ''
+        elif key in ('down', 'j'):
+            self.es_cursor = (self.es_cursor + 1) % (n + 1)
+        elif key in ('up', 'k'):
+            self.es_cursor = (self.es_cursor - 1) % (n + 1)
+        elif key == 'tab':
+            self.es_cursor = (self.es_cursor + 1) % (n + 1)
+        elif key == 'shift+tab':
+            self.es_cursor = (self.es_cursor - 1) % (n + 1)
+        elif self.es_cursor == save_idx and key in ('enter', ' '):
+            _save_export_settings(self.es_values)
+            self.es_status = 'Saved.'
+        elif self.es_cursor < n:
+            field_key = self.es_fields[self.es_cursor]
+            if field_key in self.es_toggle_fields:
+                if key in ('enter', ' '):
+                    current = self.es_values.get(field_key, 'no')
+                    self.es_values[field_key] = 'no' if current == 'yes' else 'yes'
+            else:
+                current = self.es_values.get(field_key, '')
+                if key == 'backspace':
+                    self.es_values[field_key] = current[:-1]
+                elif key == 'ctrl+u':
+                    self.es_values[field_key] = ''
+                elif len(key) == 1:
+                    self.es_values[field_key] = current + key
+            self.es_status = ''
+        return self, None
+
     def _key_review(self, msg):
         if not isinstance(msg, tea.KeyMsg):
             return self, None
@@ -519,8 +654,174 @@ class AppModel(tea.Model):
         elif key in ('up', 'k') and self.rv_rows:
             self.rv_cursor = max(self.rv_cursor - 1, 0)
         elif key == 'enter' and self.rv_rows:
+            self._open_viewer(self.rv_rows[self.rv_cursor], return_screen=Screen.REVIEW)
+        elif key == 'e' and self.rv_rows:
             self._open_editor()
         return self, None
+
+    def _key_search(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+
+        if key == 'escape':
+            if self.ss_field == 3:  # in results → go back to query
+                self.ss_field = 0
+            else:
+                self.screen = Screen.MAIN
+        elif key == 'tab':
+            self.ss_field = (self.ss_field + 1) % 4
+        elif key == 'shift+tab':
+            self.ss_field = (self.ss_field - 1) % 4
+
+        elif self.ss_field == 0:  # query text box
+            if key == 'enter':
+                self._do_search()
+            elif key == 'backspace':
+                self.ss_query = self.ss_query[:-1]
+            elif key == 'ctrl+u':
+                self.ss_query = ''
+            elif len(key) == 1:
+                self.ss_query += key
+
+        elif self.ss_field == 1:  # provider toggle
+            if key in ('enter', ' '):
+                opts = ['', 'chatgpt', 'deepseek']
+                idx = opts.index(self.ss_provider) if self.ss_provider in opts else 0
+                self.ss_provider = opts[(idx + 1) % len(opts)]
+
+        elif self.ss_field == 2:  # syntax text box
+            if key == 'enter':
+                self._do_search()
+            elif key == 'backspace':
+                self.ss_syntax = self.ss_syntax[:-1]
+            elif key == 'ctrl+u':
+                self.ss_syntax = ''
+            elif len(key) == 1:
+                self.ss_syntax += key
+
+        elif self.ss_field == 3:  # navigating results
+            if key in ('down', 'j') and self.ss_results:
+                self.ss_cursor = min(self.ss_cursor + 1, len(self.ss_results) - 1)
+            elif key in ('up', 'k') and self.ss_results:
+                self.ss_cursor = max(self.ss_cursor - 1, 0)
+            elif key == 'enter' and self.ss_results:
+                self._open_viewer(self.ss_results[self.ss_cursor], return_screen=Screen.SEARCH)
+
+        return self, None
+
+    def _key_viewer(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+        visible = max(4, self.height - 6)  # approximate lines visible in panel
+
+        if key == 'escape':
+            self.screen = self.vw_return_screen
+        elif key in ('down', 'j'):
+            max_offset = max(0, len(self.vw_lines) - visible)
+            self.vw_offset = min(self.vw_offset + 1, max_offset)
+        elif key in ('up', 'k'):
+            self.vw_offset = max(self.vw_offset - 1, 0)
+        elif key == 'page_down':
+            max_offset = max(0, len(self.vw_lines) - visible)
+            self.vw_offset = min(self.vw_offset + visible, max_offset)
+        elif key == 'page_up':
+            self.vw_offset = max(self.vw_offset - visible, 0)
+        elif key == 'e' and self.vw_row:
+            # Open editor for this branch (go to review screen with this row active)
+            self._load_review_data()
+            for i, r in enumerate(self.rv_rows):
+                if r.get('branch_id') == self.vw_row.get('branch_id'):
+                    self.rv_cursor = i
+                    break
+            self._open_editor()
+            self.screen = Screen.REVIEW
+        return self, None
+
+    def _do_search(self):
+        self.ss_results = self._db.search_branches(
+            query=self.ss_query.strip(),
+            provider=self.ss_provider,
+            syntax=self.ss_syntax.strip(),
+            main_only=False,
+        )
+        self.ss_cursor = 0
+        self.ss_searched = True
+        self.ss_field = 3 if self.ss_results else self.ss_field
+        self.ss_status = f'{len(self.ss_results)} result(s)' if self.ss_searched else ''
+
+    def _view_search(self) -> str:
+        lines = [self._header('Search'), '']
+
+        # Query field
+        focused0 = self.ss_field == 0
+        q_label = sel_style.render('Query') if focused0 else muted_style.render('Query')
+        q_val = f'{self.ss_query}\u2588' if focused0 else (self.ss_query or muted_style.render('(type to search)'))
+        lines += [f'  {q_label}', f'  {q_val}', '']
+
+        # Provider toggle
+        focused1 = self.ss_field == 1
+        prov_display = self.ss_provider or 'all'
+        p_label = sel_style.render('Provider') if focused1 else muted_style.render('Provider')
+        p_val = sel_style.render(f'[ {prov_display} ]') if focused1 else muted_style.render(f'  {prov_display}  ')
+        lines += [f'  {p_label}', f'  {p_val}', '']
+
+        # Syntax field
+        focused2 = self.ss_field == 2
+        s_label = sel_style.render('Syntax') if focused2 else muted_style.render('Syntax')
+        s_val = f'{self.ss_syntax}\u2588' if focused2 else (self.ss_syntax or muted_style.render('(e.g. python)'))
+        lines += [f'  {s_label}', f'  {s_val}', '']
+
+        # Status / results
+        if self.ss_status:
+            lines.append(muted_style.render(f'  {self.ss_status}'))
+            lines.append(muted_style.render('  ' + '─' * 40))
+            lines.append('')
+
+        if self.ss_searched and self.ss_results:
+            w = min(self.width - 4, 80)
+            title_w = max(20, w - 32)
+            visible = max(4, self.height - 18)
+            start = max(0, min(self.ss_cursor - visible // 2, len(self.ss_results) - visible))
+            start = max(0, start)
+            shown = self.ss_results[start:start + visible]
+            for i, row in enumerate(shown):
+                idx = start + i
+                date_str = (row.get('conv_create_time') or '')[:10]
+                provider = (row.get('provider') or '')[:8]
+                title = (row.get('title') or 'Untitled')
+                if len(title) > title_w - 1:
+                    title = title[:title_w - 2] + '…'
+                cell = f'  {date_str:<12}{provider:<10}{title}'
+                if idx == self.ss_cursor and self.ss_field == 3:
+                    lines.append(sel_style.render(cell))
+                else:
+                    lines.append(lipgloss.Style().foreground(C_TEXT).render(cell))
+        elif self.ss_searched:
+            lines.append(muted_style.render('  No results found.'))
+
+        lines += ['', self._footer('tab field   enter search / open   esc back')]
+        return self._panel('\n'.join(lines))
+
+    def _view_viewer(self) -> str:
+        if not self.vw_row:
+            return self._panel('No content loaded.')
+        title = (self.vw_row.get('title') or 'Untitled')[:50]
+        lines_out = [self._header(f'View: {title}'), '']
+
+        visible = max(4, self.height - 6)
+        shown = self.vw_lines[self.vw_offset:self.vw_offset + visible]
+        lines_out.extend(shown)
+
+        # Scroll indicator
+        total = len(self.vw_lines)
+        if total > visible:
+            pct = int(self.vw_offset / max(1, total - visible) * 100)
+            lines_out += ['', muted_style.render(f'  {pct}%  ({self.vw_offset + visible}/{total} lines)')]
+
+        lines_out += ['', self._footer('↑↓/k/j scroll   PgUp/PgDn page   e edit tags   esc back')]
+        return self._panel('\n'.join(lines_out))
 
     def _view_main(self) -> str:
         lines = [self._header(), '']
@@ -652,6 +953,41 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
         return self._panel('\n'.join(lines))
+    def _view_export_settings(self) -> str:
+        lines = [self._header('Export Settings'), '']
+        n = len(self.es_fields)
+        save_idx = n
+
+        for i, field_key in enumerate(self.es_fields):
+            label = self.es_labels[field_key]
+            value = self.es_values.get(field_key, '')
+            focused = self.es_cursor == i
+
+            if field_key in self.es_toggle_fields:
+                display = f'[ {"yes" if value == "yes" else "no "} ]'
+                row = f'  {label:<30} {display}'
+            else:
+                cursor_char = '\u2588' if focused else ''
+                row = f'  {label:<30} {value}{cursor_char}'
+
+            if focused:
+                lines.append(sel_style.render(row))
+            else:
+                lines.append(muted_style.render(row))
+
+        lines.append('')
+        save_row = '  [ Save ]'
+        if self.es_cursor == save_idx:
+            lines.append(sel_style.render(save_row))
+        else:
+            lines.append(muted_style.render(save_row))
+
+        if self.es_status:
+            lines += ['', success_style.render(f'  {self.es_status}')]
+
+        lines += ['', self._footer('↑↓ navigate   enter/space toggle or save   esc back')]
+        return self._panel('\n'.join(lines))
+
     def _view_review_editor(self) -> str:
         row = self.rv_rows[self.rv_cursor]
         title = (row.get('title') or 'Untitled')[:40]
@@ -735,7 +1071,7 @@ class AppModel(tea.Model):
             else:
                 lines.append(lipgloss.Style().foreground(C_TEXT).render(cell))
 
-        lines += ['', self._footer('↑↓ navigate   enter edit tags   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter view   e edit tags   esc back')]
         return self._panel('\n'.join(lines))
 
     def _start_new_import(self) -> None:
@@ -758,6 +1094,38 @@ class AppModel(tea.Model):
             self.fb_entries = []
         self.fb_cursor = 0
         self.fb_status = ''
+
+    def _open_viewer(self, row: dict, return_screen: Screen = Screen.REVIEW) -> None:
+        """Load and render branch markdown for the viewer screen."""
+        import io
+        from rich.console import Console
+        from rich.markdown import Markdown
+
+        self.vw_row = row
+        self.vw_return_screen = return_screen
+        self.vw_offset = 0
+
+        md_filename = row.get('md_filename') or ''
+        output_dir = Path(self.st_values.get('output_dir', './output')).expanduser()
+        md_path = output_dir / md_filename if md_filename else None
+
+        if md_path and md_path.exists():
+            try:
+                md_content = md_path.read_text(encoding='utf-8')
+            except OSError:
+                md_content = f'# Could not read file\n\n`{md_path}`'
+        else:
+            md_content = f'# File not found\n\n`{md_path}`'
+
+        # Render via rich into a string
+        inner_w = min(self.width - 8, 68)  # panel border (2) + padding (2*2) + buffer
+        sio = io.StringIO()
+        console = Console(file=sio, width=inner_w, highlight=False,
+                          markup=False, no_color=True)
+        console.print(Markdown(md_content))
+        rendered = sio.getvalue()
+        self.vw_lines = rendered.splitlines()
+        self.screen = Screen.VIEWER
 
     def _open_editor(self) -> None:
         if not self.rv_rows:
@@ -827,6 +1195,41 @@ def _to_iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
+def _run_alternate_exports(content: str, filename: str, st_values: dict, exp_cfg=None) -> None:
+    """Run enabled alternate export formats (HTML/DOCX) for one branch."""
+    if exp_cfg is None:
+        try:
+            from config import load_export_config
+            exp_cfg = load_export_config()
+        except Exception:
+            return
+    base_output = Path(st_values.get('output_dir', './output')).expanduser()
+
+    if exp_cfg.html_github_enabled:
+        try:
+            from html_github_exporter import export_html_github
+            html_dir = Path(exp_cfg.html_github_dir).expanduser() if exp_cfg.html_github_dir else base_output / 'html-github'
+            export_html_github(content, html_dir / filename.replace('.md', '.html'))
+        except Exception:
+            pass
+
+    if exp_cfg.html_retro_enabled:
+        try:
+            from html_retro_exporter import export_html_retro
+            retro_dir = Path(exp_cfg.html_retro_dir).expanduser() if exp_cfg.html_retro_dir else base_output / 'html-retro'
+            export_html_retro(content, retro_dir / filename.replace('.md', '.html'))
+        except Exception:
+            pass
+
+    if exp_cfg.docx_enabled:
+        try:
+            from docx_exporter import export_docx
+            docx_dir = Path(exp_cfg.docx_dir).expanduser() if exp_cfg.docx_dir else base_output / 'docx'
+            export_docx(content, docx_dir / filename.replace('.md', '.docx'))
+        except Exception:
+            pass
+
+
 def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['tea.Program']) -> None:
     """Run conversion pipeline in background daemon thread.
 
@@ -861,6 +1264,13 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
 
             written = 0
             skipped = 0
+
+            # Load export config once for this run
+            try:
+                from config import load_export_config as _lec
+                _exp_cfg = _lec()
+            except Exception:
+                _exp_cfg = None
 
             for conv in conversations:
                 update_time_iso = _to_iso(conv.update_time)
@@ -914,14 +1324,15 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                     i_tags = infer_tags(full_text)
                     i_syntax = infer_syntax(all_segments)
 
-                    db_branches.append({
+                    db_branch = {
                         'branch_id': f'{conv.id}__branch_{branch.branch_index}',
                         'branch_index': branch.branch_index,
                         'is_main_branch': branch.branch_index == 1,
                         'messages': msg_records,
                         'inferred_tags': i_tags,
                         'inferred_syntax': i_syntax,
-                    })
+                    }
+                    db_branches.append(db_branch)
 
                     # Write markdown (filtered by export_markdown config)
                     if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
@@ -929,6 +1340,9 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                     content = renderer.render(conv, branch)
                     filename = file_mgr.make_filename(conv, branch)
                     file_mgr.write(filename, content)
+                    db_branch['md_filename'] = filename
+                    # Alternate export formats (if enabled in export settings)
+                    _run_alternate_exports(content, filename, st_values, _exp_cfg)
                     written += 1
 
                 if db_branches:
