@@ -38,6 +38,12 @@ class DatabaseManager:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
+        # Migrate: add md_filename column if not present (idempotent)
+        try:
+            self._conn.execute("ALTER TABLE branches ADD COLUMN md_filename TEXT")
+            self._conn.commit()
+        except sqlite3.OperationalError:
+            pass  # Column already exists
 
     def needs_update(self, conversation_id: str, update_time: str) -> bool:
         """Return True if conversation is new or has a newer update_time."""
@@ -84,11 +90,19 @@ class DatabaseManager:
                 project = None
                 category = None
                 syntax = '[]'
+            # Preserve existing md_filename; update if new value provided
+            cur_md = self._conn.execute(
+                'SELECT md_filename FROM branches WHERE branch_id=?',
+                (b['branch_id'],)
+            ).fetchone()
+            existing_md = cur_md['md_filename'] if cur_md else None
+            new_md = b.get('md_filename') or existing_md
             self._conn.execute(
                 '''INSERT OR REPLACE INTO branches
                    (branch_id, conversation_id, branch_index, is_main_branch,
-                    messages, tags, project, category, syntax, inferred_tags, inferred_syntax)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+                    messages, tags, project, category, syntax,
+                    inferred_tags, inferred_syntax, md_filename)
+                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?)''',
                 (
                     b['branch_id'],
                     conversation_id,
@@ -101,14 +115,17 @@ class DatabaseManager:
                     syntax,
                     json.dumps(b['inferred_tags']),
                     json.dumps(b['inferred_syntax']),
+                    new_md,
                 ),
             )
         self._conn.commit()
 
     def get_branch(self, branch_id: str) -> dict | None:
         row = self._conn.execute(
-            '''SELECT b.*, c.title, c.provider, c.create_time AS conv_create_time,
-                      c.model_slug
+            '''SELECT b.branch_id, b.conversation_id, b.branch_index, b.is_main_branch,
+                      b.messages, b.tags, b.project, b.category, b.syntax,
+                      b.inferred_tags, b.inferred_syntax, b.md_filename,
+                      c.title, c.provider, c.create_time AS conv_create_time, c.model_slug
                FROM branches b
                JOIN conversations c ON b.conversation_id = c.conversation_id
                WHERE b.branch_id = ?''',
@@ -124,7 +141,7 @@ class DatabaseManager:
     ) -> list[dict]:
         q = '''SELECT b.branch_id, b.conversation_id, b.branch_index, b.is_main_branch,
                       b.messages, b.tags, b.project, b.category, b.syntax,
-                      b.inferred_tags, b.inferred_syntax,
+                      b.inferred_tags, b.inferred_syntax, b.md_filename,
                       c.title, c.provider, c.create_time AS conv_create_time, c.model_slug
                FROM branches b
                JOIN conversations c ON b.conversation_id = c.conversation_id'''
@@ -132,6 +149,47 @@ class DatabaseManager:
             q += ' WHERE b.is_main_branch = 1'
         q += ' ORDER BY c.create_time DESC LIMIT ? OFFSET ?'
         rows = self._conn.execute(q, (limit, offset)).fetchall()
+        return [self._row_to_dict(r) for r in rows]
+
+    def search_branches(
+        self,
+        query: str = '',
+        provider: str = '',
+        syntax: str = '',
+        main_only: bool = False,
+        limit: int = 500,
+    ) -> list[dict]:
+        """Search branches by text (title, tags, project, message content) and filters."""
+        conditions = []
+        params: list = []
+        if query:
+            q = f'%{query}%'
+            conditions.append(
+                '(c.title LIKE ? OR b.tags LIKE ? OR b.inferred_tags LIKE ? '
+                'OR b.project LIKE ? OR b.messages LIKE ?)'
+            )
+            params.extend([q, q, q, q, q])
+        if provider:
+            conditions.append('c.provider = ?')
+            params.append(provider)
+        if syntax:
+            s = f'%{syntax}%'
+            conditions.append('(b.syntax LIKE ? OR b.inferred_syntax LIKE ?)')
+            params.extend([s, s])
+        if main_only:
+            conditions.append('b.is_main_branch = 1')
+        where = ('WHERE ' + ' AND '.join(conditions)) if conditions else ''
+        rows = self._conn.execute(
+            f'''SELECT b.branch_id, b.conversation_id, b.branch_index, b.is_main_branch,
+                       b.tags, b.project, b.category, b.syntax,
+                       b.inferred_tags, b.inferred_syntax, b.md_filename,
+                       c.title, c.provider, c.create_time AS conv_create_time, c.model_slug
+                FROM branches b
+                JOIN conversations c ON b.conversation_id = c.conversation_id
+                {where}
+                ORDER BY c.create_time DESC LIMIT ?''',
+            params + [limit],
+        ).fetchall()
         return [self._row_to_dict(r) for r in rows]
 
     def update_branch_tags(
