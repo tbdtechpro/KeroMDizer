@@ -1,7 +1,7 @@
 import tomllib
 from pathlib import Path
 
-from models import PersonaConfig
+from models import PersonaConfig, BranchConfig
 
 CONFIG_PATH = Path.home() / '.keromdizer.toml'
 
@@ -40,3 +40,35 @@ def load_persona(
         or PROVIDER_DEFAULTS.get(provider, 'Assistant')
     )
     return PersonaConfig(user_name=resolved_user, assistant_name=resolved_assistant)
+
+
+def load_branch_config() -> BranchConfig:
+    """Load branch handling config from ~/.keromdizer.toml."""
+    data: dict = {}
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, 'rb') as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError:
+            pass
+    b = data.get('branches', {})
+    return BranchConfig(
+        import_branches=b.get('import', 'all'),
+        export_markdown=b.get('export_markdown', 'all'),
+        export_jsonl=b.get('export_jsonl', 'all'),
+    )
+
+
+def load_db_path() -> Path:
+    """Return configured DB path, defaulting to ~/.keromdizer.db."""
+    data: dict = {}
+    if CONFIG_PATH.exists():
+        try:
+            with open(CONFIG_PATH, 'rb') as f:
+                data = tomllib.load(f)
+        except tomllib.TOMLDecodeError:
+            pass
+    raw = data.get('database', {}).get('path', '')
+    if raw:
+        return Path(raw).expanduser()
+    return Path.home() / '.keromdizer.db'

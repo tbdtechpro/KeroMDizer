@@ -32,3 +32,10 @@ class Conversation:
 class PersonaConfig:
     user_name: str = 'User'
     assistant_name: str = 'Assistant'
+
+
+@dataclass
+class BranchConfig:
+    import_branches: str = 'all'   # 'main' | 'all'
+    export_markdown: str = 'all'   # 'main' | 'all'
+    export_jsonl: str = 'all'      # 'main' | 'all'
