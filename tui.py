@@ -50,6 +50,7 @@ class Screen(enum.Enum):
     SETTINGS        = 'settings'
     REVIEW          = 'review'
     SEARCH          = 'search'
+    VIEWER          = 'viewer'
 
 
 # ── Custom messages ────────────────────────────────────────────────────────────
@@ -226,6 +227,12 @@ class AppModel(tea.Model):
         self.rv_all_tags: list[str] = []
         self.rv_status: str = ''
 
+        # VIEWER
+        self.vw_lines: list[str] = []    # rendered content split into lines
+        self.vw_offset: int = 0           # scroll position
+        self.vw_row: dict | None = None   # source DB row (branch dict)
+        self.vw_return_screen: Screen = Screen.REVIEW  # which screen to go back to
+
         # SETTINGS
         st_defaults = _load_settings()
         self.st_fields: list[str] = [
@@ -264,6 +271,7 @@ class AppModel(tea.Model):
             Screen.SETTINGS:        self._key_settings,
             Screen.REVIEW:          self._key_review,
             Screen.SEARCH:          self._key_search,
+            Screen.VIEWER:          self._key_viewer,
         }
         handler = dispatch.get(self.screen)
         if handler:
@@ -280,6 +288,7 @@ class AppModel(tea.Model):
             Screen.SETTINGS:        self._view_settings,
             Screen.REVIEW:          self._view_review,
             Screen.SEARCH:          self._view_search,
+            Screen.VIEWER:          self._view_viewer,
         }
         return views[self.screen]() + '\n'
 
@@ -533,6 +542,8 @@ class AppModel(tea.Model):
         elif key in ('up', 'k') and self.rv_rows:
             self.rv_cursor = max(self.rv_cursor - 1, 0)
         elif key == 'enter' and self.rv_rows:
+            self._open_viewer(self.rv_rows[self.rv_cursor], return_screen=Screen.REVIEW)
+        elif key == 'e' and self.rv_rows:
             self._open_editor()
         return self, None
 
@@ -583,6 +594,35 @@ class AppModel(tea.Model):
             elif key in ('up', 'k') and self.ss_results:
                 self.ss_cursor = max(self.ss_cursor - 1, 0)
 
+        return self, None
+
+    def _key_viewer(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+        visible = max(4, self.height - 6)  # approximate lines visible in panel
+
+        if key == 'escape':
+            self.screen = self.vw_return_screen
+        elif key in ('down', 'j'):
+            max_offset = max(0, len(self.vw_lines) - visible)
+            self.vw_offset = min(self.vw_offset + 1, max_offset)
+        elif key in ('up', 'k'):
+            self.vw_offset = max(self.vw_offset - 1, 0)
+        elif key == 'page_down':
+            max_offset = max(0, len(self.vw_lines) - visible)
+            self.vw_offset = min(self.vw_offset + visible, max_offset)
+        elif key == 'page_up':
+            self.vw_offset = max(self.vw_offset - visible, 0)
+        elif key == 'e' and self.vw_row:
+            # Open editor for this branch (go to review screen with this row active)
+            self._load_review_data()
+            for i, r in enumerate(self.rv_rows):
+                if r.get('branch_id') == self.vw_row.get('branch_id'):
+                    self.rv_cursor = i
+                    break
+            self._open_editor()
+            self.screen = Screen.REVIEW
         return self, None
 
     def _do_search(self):
@@ -649,6 +689,25 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('tab field   enter search / open   esc back')]
         return self._panel('\n'.join(lines))
+
+    def _view_viewer(self) -> str:
+        if not self.vw_row:
+            return self._panel('No content loaded.')
+        title = (self.vw_row.get('title') or 'Untitled')[:50]
+        lines_out = [self._header(f'View: {title}'), '']
+
+        visible = max(4, self.height - 6)
+        shown = self.vw_lines[self.vw_offset:self.vw_offset + visible]
+        lines_out.extend(shown)
+
+        # Scroll indicator
+        total = len(self.vw_lines)
+        if total > visible:
+            pct = int(self.vw_offset / max(1, total - visible) * 100)
+            lines_out += ['', muted_style.render(f'  {pct}%  ({self.vw_offset + visible}/{total} lines)')]
+
+        lines_out += ['', self._footer('↑↓/k/j scroll   PgUp/PgDn page   e edit tags   esc back')]
+        return self._panel('\n'.join(lines_out))
 
     def _view_main(self) -> str:
         lines = [self._header(), '']
@@ -863,7 +922,7 @@ class AppModel(tea.Model):
             else:
                 lines.append(lipgloss.Style().foreground(C_TEXT).render(cell))
 
-        lines += ['', self._footer('↑↓ navigate   enter edit tags   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter view   e edit tags   esc back')]
         return self._panel('\n'.join(lines))
 
     def _start_new_import(self) -> None:
@@ -886,6 +945,38 @@ class AppModel(tea.Model):
             self.fb_entries = []
         self.fb_cursor = 0
         self.fb_status = ''
+
+    def _open_viewer(self, row: dict, return_screen: Screen = Screen.REVIEW) -> None:
+        """Load and render branch markdown for the viewer screen."""
+        import io
+        from rich.console import Console
+        from rich.markdown import Markdown
+
+        self.vw_row = row
+        self.vw_return_screen = return_screen
+        self.vw_offset = 0
+
+        md_filename = row.get('md_filename') or ''
+        output_dir = Path(self.st_values.get('output_dir', './output'))
+        md_path = output_dir / md_filename if md_filename else None
+
+        if md_path and md_path.exists():
+            try:
+                md_content = md_path.read_text(encoding='utf-8')
+            except OSError:
+                md_content = f'# Could not read file\n\n`{md_path}`'
+        else:
+            md_content = f'# File not found\n\n`{md_path}`'
+
+        # Render via rich into a string
+        inner_w = min(self.width - 8, 68)  # panel border (2) + padding (2*2) + buffer
+        sio = io.StringIO()
+        console = Console(file=sio, width=inner_w, highlight=False,
+                          markup=False, no_color=False)
+        console.print(Markdown(md_content))
+        rendered = sio.getvalue()
+        self.vw_lines = rendered.splitlines()
+        self.screen = Screen.VIEWER
 
     def _open_editor(self) -> None:
         if not self.rv_rows:
