@@ -10,6 +10,7 @@ import bubbletea as tea
 import lipgloss
 from lipgloss import Color
 from lipgloss.themes.catppuccin import catppuccin_mocha as M
+from db import DatabaseManager
 
 # ── Colours ────────────────────────────────────────────────────────────────────
 C_TEXT    = M.text
@@ -200,6 +201,15 @@ class AppModel(tea.Model):
         self.run_done:    bool = False
         self.run_error:   str = ''
 
+        # DB
+        from config import load_db_path
+        self._db: DatabaseManager = DatabaseManager(load_db_path())
+
+        # REVIEW
+        self.rv_rows: list[dict] = []
+        self.rv_cursor: int = 0
+        self.rv_editing: bool = False
+
         # SETTINGS
         st_defaults = _load_settings()
         self.st_fields: list[str] = [
@@ -285,6 +295,8 @@ class AppModel(tea.Model):
             self.screen = dest[self.menu_cursor]
             if self.screen == Screen.FOLDER_BROWSER:
                 self._fb_refresh()
+            elif self.screen == Screen.REVIEW:
+                self._load_review_data()
         return self, None
 
     def _key_folder_browser(self, msg):
@@ -451,8 +463,24 @@ class AppModel(tea.Model):
             self.st_status = ''
         return self, None
     def _key_review(self, msg):
-        if isinstance(msg, tea.KeyMsg) and msg.key == 'escape':
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+
+        if self.rv_editing:
+            # editing handled in Task 10 — pass for now
+            if key == 'escape':
+                self.rv_editing = False
+            return self, None
+
+        if key == 'escape':
             self.screen = Screen.MAIN
+        elif key in ('down', 'j') and self.rv_rows:
+            self.rv_cursor = min(self.rv_cursor + 1, len(self.rv_rows) - 1)
+        elif key in ('up', 'k') and self.rv_rows:
+            self.rv_cursor = max(self.rv_cursor - 1, 0)
+        elif key == 'enter' and self.rv_rows:
+            self.rv_editing = True
         return self, None
 
     def _view_main(self) -> str:
@@ -586,16 +614,46 @@ class AppModel(tea.Model):
         lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
         return self._panel('\n'.join(lines))
     def _view_review(self) -> str:
-        lines = [
-            self._header('Review'),
-            '',
-            '  Coming soon',
-            '',
-            muted_style.render('  Conversation tagging will be available here'),
-            muted_style.render('  once JSONL export (#20) is implemented.'),
-            '',
-            self._footer('esc back'),
-        ]
+        if self.rv_editing:
+            # editing view handled in Task 10 — placeholder for now
+            return self._panel('\n'.join([self._header('Edit Tags'), '', muted_style.render('  (editor coming soon)'), '', self._footer('esc back')]))
+
+        lines = [self._header('Review & Tag'), '']
+
+        if not self.rv_rows:
+            lines.append(muted_style.render('  No conversations in database.'))
+            lines.append(muted_style.render('  Run an import first.'))
+            lines += ['', self._footer('esc back')]
+            return self._panel('\n'.join(lines))
+
+        w = min(self.width - 4, 80)
+        title_w = max(20, w - 32)
+
+        # Column headers
+        header = f'  {"Date":<12}{"Provider":<10}{"Title":<{title_w}}'
+        lines.append(muted_style.render(header))
+        lines.append(muted_style.render('  ' + '─' * (w - 4)))
+
+        visible = max(4, self.height - 10)
+        start = max(0, min(self.rv_cursor - visible // 2, len(self.rv_rows) - visible))
+        start = max(0, start)
+        shown = self.rv_rows[start:start + visible]
+
+        for i, row in enumerate(shown):
+            idx = start + i
+            date_str = (row.get('conv_create_time') or '')[:10]
+            provider = (row.get('provider') or '')[:8]
+            title = (row.get('title') or 'Untitled')
+            if len(title) > title_w - 1:
+                title = title[:title_w - 2] + '…'
+            tag_indicator = ' [tagged]' if row.get('tags') else ''
+            cell = f'  {date_str:<12}{provider:<10}{title}{tag_indicator}'
+            if idx == self.rv_cursor:
+                lines.append(sel_style.render(cell))
+            else:
+                lines.append(cell)
+
+        lines += ['', self._footer('↑↓ navigate   enter edit tags   esc back')]
         return self._panel('\n'.join(lines))
 
     def _fb_refresh(self) -> None:
@@ -610,6 +668,11 @@ class AppModel(tea.Model):
             self.fb_entries = []
         self.fb_cursor = 0
         self.fb_status = ''
+
+    def _load_review_data(self) -> None:
+        """Load/refresh branches from DB into REVIEW state."""
+        self.rv_rows = self._db.list_branches()
+        self.rv_cursor = max(0, min(self.rv_cursor, len(self.rv_rows) - 1)) if self.rv_rows else 0
 
 
 # ── Background commands ────────────────────────────────────────────────────────

@@ -537,12 +537,96 @@ def test_st_esc_returns_to_main():
 
 # ── REVIEW screen ──────────────────────────────────────────────────────────────
 
+class _MockDB:
+    def __init__(self, rows):
+        self._rows = rows
+    def list_branches(self, main_only=False, offset=0, limit=500):
+        return self._rows
+    def get_all_tags(self):
+        return []
+    def update_branch_tags(self, *a, **kw):
+        pass
+    def close(self):
+        pass
+
+
+def _make_row(conv_id, title):
+    return {
+        'branch_id': f'{conv_id}__branch_1',
+        'conversation_id': conv_id, 'branch_index': 1,
+        'is_main_branch': True, 'title': title, 'provider': 'chatgpt',
+        'conv_create_time': '2026-01-14T00:00:00+00:00', 'model_slug': 'gpt-4o',
+        'tags': [], 'project': None, 'category': None, 'syntax': [],
+        'inferred_tags': [], 'inferred_syntax': [], 'messages': [],
+    }
+
+
+def test_review_screen_renders_empty_state(monkeypatch):
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB([]))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    view = model.view()
+    # Should show some kind of empty state message
+    assert any(word in view.lower() for word in ('no conversation', 'empty', 'import', 'database'))
+
+
+def test_review_screen_shows_branch_titles(monkeypatch):
+    rows = [_make_row('c1', 'My Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    view = model.view()
+    assert 'My Chat' in view
+
+
+def test_review_cursor_moves_down(monkeypatch):
+    rows = [_make_row('c1', 'First Chat'), _make_row('c2', 'Second Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    assert model.rv_cursor == 0
+    model, _ = model.update(tea.KeyMsg(key='down'))
+    assert model.rv_cursor == 1
+
+
+def test_review_cursor_does_not_go_below_last(monkeypatch):
+    rows = [_make_row('c1', 'Only')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model, _ = model.update(tea.KeyMsg(key='down'))
+    assert model.rv_cursor == 0
+
+
+def test_review_cursor_moves_up(monkeypatch):
+    rows = [_make_row('c1', 'First'), _make_row('c2', 'Second')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model.rv_cursor = 1
+    model, _ = model.update(tea.KeyMsg(key='up'))
+    assert model.rv_cursor == 0
+
+
+def test_review_escape_returns_to_main(monkeypatch):
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB([]))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model, _ = model.update(tea.KeyMsg(key='escape'))
+    assert model.screen == Screen.MAIN
+
+
 def test_review_view_shows_placeholder():
     m = AppModel()
     m.screen = Screen.REVIEW
     m.width, m.height = 80, 24
     v = _strip(m.view())
-    assert 'Coming soon' in v or 'tagging' in v.lower()
+    assert 'Coming soon' in v or 'tagging' in v.lower() or 'import' in v.lower() or 'no conversation' in v.lower()
 
 
 def test_review_esc_returns_to_main():
