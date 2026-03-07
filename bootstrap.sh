@@ -75,7 +75,7 @@ else
 fi
 
 # ── 6. Install dev requirements ────────────────────────────────────────────────
-info "Installing dev requirements (pytest)..."
+info "Installing requirements (pytest, yake, pygments, bubbletea, lipgloss)..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
 ok "Dev requirements installed"
