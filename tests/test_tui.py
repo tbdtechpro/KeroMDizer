@@ -49,7 +49,7 @@ def test_main_cursor_moves_up():
 
 def test_main_cursor_wraps_down():
     m = AppModel()
-    m.menu_cursor = 2  # last item
+    m.menu_cursor = 3  # last item
     m, _ = m.update(tea.KeyMsg(key='down'))
     assert m.menu_cursor == 0
 
@@ -58,7 +58,7 @@ def test_main_cursor_wraps_up():
     m = AppModel()
     m.menu_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='up'))
-    assert m.menu_cursor == 2
+    assert m.menu_cursor == 3
 
 
 def test_main_q_quits():
@@ -761,3 +761,58 @@ def test_review_editor_ctrl_s_saves(monkeypatch):
     assert saved.get('branch_id') == 'c1__branch_1'
     assert 'python' in saved.get('tags', [])
     assert 'async' in saved.get('tags', [])
+
+
+# ── SEARCH screen ───────────────────────────────────────────────────────────────
+
+def test_search_screen_in_enum():
+    assert hasattr(Screen, 'SEARCH')
+
+
+def test_search_initial_state():
+    m = AppModel()
+    assert m.ss_query == ''
+    assert m.ss_results == []
+    assert m.ss_searched == False
+    assert m.ss_field == 0
+
+
+def test_search_typing_updates_query():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    for ch in 'python':
+        m, _ = m.update(tea.KeyMsg(key=ch))
+    assert m.ss_query == 'python'
+
+
+def test_search_tab_cycles_fields():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    for _ in range(4):
+        m, _ = m.update(tea.KeyMsg(key='tab'))
+    assert m.ss_field == 0  # wrapped back to start
+
+
+def test_search_escape_from_results_goes_to_query():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    m.ss_field = 3
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.ss_field == 0
+    assert m.screen == Screen.SEARCH  # still on search screen
+
+
+def test_search_escape_from_query_goes_to_main():
+    m = AppModel()
+    m.screen = Screen.SEARCH
+    m.ss_field = 0
+    m, _ = m.update(tea.KeyMsg(key='escape'))
+    assert m.screen == Screen.MAIN
+
+
+def test_search_menu_item_accessible():
+    m = AppModel()
+    assert 'Search' in m.menu_items
+    m.menu_cursor = m.menu_items.index('Search')
+    m, _ = m.update(tea.KeyMsg(key='enter'))
+    assert m.screen == Screen.SEARCH

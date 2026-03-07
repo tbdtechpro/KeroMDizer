@@ -49,6 +49,7 @@ class Screen(enum.Enum):
     RUN             = 'run'
     SETTINGS        = 'settings'
     REVIEW          = 'review'
+    SEARCH          = 'search'
 
 
 # ── Custom messages ────────────────────────────────────────────────────────────
@@ -173,7 +174,7 @@ class AppModel(tea.Model):
 
         # MAIN
         self.menu_cursor: int = 0
-        self.menu_items: list[str] = ['Import', 'Settings', 'Review']
+        self.menu_items: list[str] = ['Import', 'Settings', 'Review', 'Search']
 
         # FOLDER_BROWSER
         self.fb_dir: Path = Path.home()
@@ -204,6 +205,16 @@ class AppModel(tea.Model):
         # DB
         from config import load_db_path
         self._db: DatabaseManager = DatabaseManager(load_db_path())
+
+        # SEARCH
+        self.ss_query: str = ''
+        self.ss_provider: str = ''     # '' = all, 'chatgpt', 'deepseek'
+        self.ss_syntax: str = ''
+        self.ss_field: int = 0         # 0=query, 1=provider, 2=syntax, 3=results
+        self.ss_results: list[dict] = []
+        self.ss_cursor: int = 0        # cursor within results list
+        self.ss_searched: bool = False
+        self.ss_status: str = ''
 
         # REVIEW
         self.rv_rows: list[dict] = []
@@ -252,6 +263,7 @@ class AppModel(tea.Model):
             Screen.RUN:             self._key_run,
             Screen.SETTINGS:        self._key_settings,
             Screen.REVIEW:          self._key_review,
+            Screen.SEARCH:          self._key_search,
         }
         handler = dispatch.get(self.screen)
         if handler:
@@ -267,6 +279,7 @@ class AppModel(tea.Model):
             Screen.RUN:             self._view_run,
             Screen.SETTINGS:        self._view_settings,
             Screen.REVIEW:          self._view_review,
+            Screen.SEARCH:          self._view_search,
         }
         return views[self.screen]() + '\n'
 
@@ -296,12 +309,13 @@ class AppModel(tea.Model):
         elif msg.key == 'q':
             return self, tea.quit_cmd
         elif msg.key == 'enter':
-            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.REVIEW]
+            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.REVIEW, Screen.SEARCH]
             self.screen = dest[self.menu_cursor]
             if self.screen == Screen.FOLDER_BROWSER:
                 self._start_new_import()
             elif self.screen == Screen.REVIEW:
                 self._load_review_data()
+            # No setup needed for Search — state persists between visits
         return self, None
 
     def _key_folder_browser(self, msg):
@@ -521,6 +535,120 @@ class AppModel(tea.Model):
         elif key == 'enter' and self.rv_rows:
             self._open_editor()
         return self, None
+
+    def _key_search(self, msg):
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+
+        if key == 'escape':
+            if self.ss_field == 3:  # in results → go back to query
+                self.ss_field = 0
+            else:
+                self.screen = Screen.MAIN
+        elif key == 'tab':
+            self.ss_field = (self.ss_field + 1) % 4
+        elif key == 'shift+tab':
+            self.ss_field = (self.ss_field - 1) % 4
+
+        elif self.ss_field == 0:  # query text box
+            if key == 'enter':
+                self._do_search()
+            elif key == 'backspace':
+                self.ss_query = self.ss_query[:-1]
+            elif key == 'ctrl+u':
+                self.ss_query = ''
+            elif len(key) == 1:
+                self.ss_query += key
+
+        elif self.ss_field == 1:  # provider toggle
+            if key in ('enter', ' '):
+                opts = ['', 'chatgpt', 'deepseek']
+                idx = opts.index(self.ss_provider) if self.ss_provider in opts else 0
+                self.ss_provider = opts[(idx + 1) % len(opts)]
+
+        elif self.ss_field == 2:  # syntax text box
+            if key == 'enter':
+                self._do_search()
+            elif key == 'backspace':
+                self.ss_syntax = self.ss_syntax[:-1]
+            elif key == 'ctrl+u':
+                self.ss_syntax = ''
+            elif len(key) == 1:
+                self.ss_syntax += key
+
+        elif self.ss_field == 3:  # navigating results
+            if key in ('down', 'j') and self.ss_results:
+                self.ss_cursor = min(self.ss_cursor + 1, len(self.ss_results) - 1)
+            elif key in ('up', 'k') and self.ss_results:
+                self.ss_cursor = max(self.ss_cursor - 1, 0)
+
+        return self, None
+
+    def _do_search(self):
+        self.ss_results = self._db.search_branches(
+            query=self.ss_query.strip(),
+            provider=self.ss_provider,
+            syntax=self.ss_syntax.strip(),
+            main_only=False,
+        )
+        self.ss_cursor = 0
+        self.ss_searched = True
+        self.ss_field = 3 if self.ss_results else self.ss_field
+        self.ss_status = f'{len(self.ss_results)} result(s)' if self.ss_searched else ''
+
+    def _view_search(self) -> str:
+        lines = [self._header('Search'), '']
+
+        # Query field
+        focused0 = self.ss_field == 0
+        q_label = sel_style.render('Query') if focused0 else muted_style.render('Query')
+        q_val = f'{self.ss_query}\u2588' if focused0 else (self.ss_query or muted_style.render('(type to search)'))
+        lines += [f'  {q_label}', f'  {q_val}', '']
+
+        # Provider toggle
+        focused1 = self.ss_field == 1
+        prov_display = self.ss_provider or 'all'
+        p_label = sel_style.render('Provider') if focused1 else muted_style.render('Provider')
+        p_val = sel_style.render(f'[ {prov_display} ]') if focused1 else muted_style.render(f'  {prov_display}  ')
+        lines += [f'  {p_label}', f'  {p_val}', '']
+
+        # Syntax field
+        focused2 = self.ss_field == 2
+        s_label = sel_style.render('Syntax') if focused2 else muted_style.render('Syntax')
+        s_val = f'{self.ss_syntax}\u2588' if focused2 else (self.ss_syntax or muted_style.render('(e.g. python)'))
+        lines += [f'  {s_label}', f'  {s_val}', '']
+
+        # Status / results
+        if self.ss_status:
+            lines.append(muted_style.render(f'  {self.ss_status}'))
+            lines.append(muted_style.render('  ' + '─' * 40))
+            lines.append('')
+
+        if self.ss_searched and self.ss_results:
+            w = min(self.width - 4, 80)
+            title_w = max(20, w - 32)
+            visible = max(4, self.height - 18)
+            start = max(0, min(self.ss_cursor - visible // 2, len(self.ss_results) - visible))
+            start = max(0, start)
+            shown = self.ss_results[start:start + visible]
+            for i, row in enumerate(shown):
+                idx = start + i
+                date_str = (row.get('conv_create_time') or '')[:10]
+                provider = (row.get('provider') or '')[:8]
+                title = (row.get('title') or 'Untitled')
+                if len(title) > title_w - 1:
+                    title = title[:title_w - 2] + '…'
+                cell = f'  {date_str:<12}{provider:<10}{title}'
+                if idx == self.ss_cursor and self.ss_field == 3:
+                    lines.append(sel_style.render(cell))
+                else:
+                    lines.append(lipgloss.Style().foreground(C_TEXT).render(cell))
+        elif self.ss_searched:
+            lines.append(muted_style.render('  No results found.'))
+
+        lines += ['', self._footer('tab field   enter search / open   esc back')]
+        return self._panel('\n'.join(lines))
 
     def _view_main(self) -> str:
         lines = [self._header(), '']
