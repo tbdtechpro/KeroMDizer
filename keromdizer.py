@@ -1,11 +1,23 @@
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
-from config import load_persona
+from config import load_persona, load_branch_config, load_db_path
 from parser_factory import build_parser
 from renderer import MarkdownRenderer
 from file_manager import FileManager
+from db import DatabaseManager
+from content_parser import parse_content
+from inference import infer_tags, infer_syntax, build_full_text
+
+
+def _to_iso(ts: float | str | None) -> str | None:
+    if ts is None:
+        return None
+    if isinstance(ts, str):
+        return ts
+    return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
 def main():
@@ -44,11 +56,22 @@ def main():
         default=None,
         help='Export source (default: auto-detected from folder contents)',
     )
+    arg_parser.add_argument(
+        '--export-jsonl',
+        type=Path,
+        default=None,
+        metavar='PATH',
+        help='Also write a JSONL export to PATH after importing',
+    )
     args = arg_parser.parse_args()
 
     if not args.export_folder.is_dir():
         print(f'Error: {args.export_folder} is not a directory', file=sys.stderr)
         sys.exit(1)
+
+    branch_cfg = load_branch_config()
+    db_path = load_db_path()
+    db = DatabaseManager(db_path)
 
     conv_parser, provider = build_parser(args.export_folder, source=args.source)
     try:
@@ -66,6 +89,7 @@ def main():
     except ValueError as e:
         print(f'Error: {e}', file=sys.stderr)
         sys.exit(1)
+
     renderer = MarkdownRenderer(persona)
     file_mgr = FileManager(args.output)
 
@@ -73,12 +97,21 @@ def main():
     skipped = 0
 
     for conv in conversations:
-        if not file_mgr.needs_update(conv):
+        update_time_iso = _to_iso(conv.update_time)
+        if not db.needs_update(conv.id, update_time_iso or ''):
             skipped += 1
             continue
 
-        for branch in conv.branches:
-            # Resolve image references to actual filenames
+        # Filter branches by import config
+        branches_to_import = (
+            [b for b in conv.branches if b.branch_index == 1]
+            if branch_cfg.import_branches == 'main'
+            else conv.branches
+        )
+
+        db_branches = []
+        for branch in branches_to_import:
+            # Resolve image refs in messages (mutates msg.text)
             for msg in branch.messages:
                 resolved = {}
                 for file_id in msg.image_refs:
@@ -92,22 +125,83 @@ def main():
                         f'assets/{old_id})', f'assets/{new_name})'
                     )
 
+            # Parse structured content and run inference
+            all_segments = []
+            msg_records = []
+            for msg in branch.messages:
+                segments = parse_content(msg.text)
+                all_segments.extend(segments)
+                msg_records.append({
+                    'role': msg.role,
+                    'timestamp': _to_iso(msg.create_time),
+                    'content': [
+                        {
+                            'type': s.type,
+                            'text': s.text,
+                            **(({'language': s.language}) if s.language else {}),
+                        }
+                        for s in segments
+                    ],
+                })
+
+            full_text = build_full_text(all_segments)
+            i_tags = infer_tags(full_text)
+            i_syntax = infer_syntax(all_segments)
+
+            db_branches.append({
+                'branch_id': f'{conv.id}__branch_{branch.branch_index}',
+                'branch_index': branch.branch_index,
+                'is_main_branch': branch.branch_index == 1,
+                'messages': msg_records,
+                'inferred_tags': i_tags,
+                'inferred_syntax': i_syntax,
+            })
+
+            # Write markdown (filtered by export_markdown config)
+            if branch_cfg.export_markdown == 'main' and branch.branch_index != 1:
+                continue
             content = renderer.render(conv, branch)
             filename = file_mgr.make_filename(conv, branch)
-
             if args.dry_run:
-                branch_label = f' (branch {branch.branch_index})' if len(conv.branches) > 1 else ''
+                branch_label = (
+                    f' (branch {branch.branch_index})' if len(conv.branches) > 1 else ''
+                )
                 print(f'  Would write: {args.output / filename}{branch_label}')
             else:
-                file_mgr.write(filename, content, conv)
+                file_mgr.write(filename, content)
                 written += 1
 
+        if not args.dry_run and db_branches:
+            db.upsert_conversation(
+                conversation_id=conv.id,
+                provider=provider,
+                title=conv.title,
+                create_time=_to_iso(conv.create_time),
+                update_time=update_time_iso,
+                model_slug=conv.model_slug,
+                branch_count=len(conv.branches),
+                branches=db_branches,
+            )
+
     if not args.dry_run:
-        file_mgr.save_manifest()
+        if args.export_jsonl:
+            from jsonl_exporter import export_jsonl
+            export_jsonl(db, args.export_jsonl, branch_mode=branch_cfg.export_jsonl)
+            print(f'JSONL exported to {args.export_jsonl}')
         print(f'Done. Written: {written} file(s), skipped {skipped} up-to-date conversation(s).')
     else:
-        total_would_write = sum(len(c.branches) for c in conversations if file_mgr.needs_update(c))
-        print(f'Dry run complete. Would write ~{total_would_write} file(s), skip {skipped} conversation(s).')
+        total_would_write = sum(
+            len([b for b in c.branches
+                 if branch_cfg.export_markdown == 'all' or b.branch_index == 1])
+            for c in conversations
+            if db.needs_update(c.id, _to_iso(c.update_time) or '')
+        )
+        print(
+            f'Dry run complete. Would write ~{total_would_write} file(s),'
+            f' skip {skipped} conversation(s).'
+        )
+
+    db.close()
 
 
 if __name__ == '__main__':
