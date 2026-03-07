@@ -299,7 +299,7 @@ class AppModel(tea.Model):
             dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.REVIEW]
             self.screen = dest[self.menu_cursor]
             if self.screen == Screen.FOLDER_BROWSER:
-                self._fb_refresh()
+                self._start_new_import()
             elif self.screen == Screen.REVIEW:
                 self._load_review_data()
         return self, None
@@ -433,8 +433,7 @@ class AppModel(tea.Model):
                 if msg.key in ('enter', 'q'):
                     self.screen = Screen.MAIN
                 elif msg.key == 'n':
-                    self.screen = Screen.FOLDER_BROWSER
-                    self._fb_refresh()
+                    self._start_new_import()
         return self, None
     def _key_settings(self, msg):
         if not isinstance(msg, tea.KeyMsg):
@@ -750,6 +749,14 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('↑↓ navigate   enter edit tags   esc back')]
         return self._panel('\n'.join(lines))
+
+    def _start_new_import(self) -> None:
+        """Navigate to FOLDER_BROWSER, landing at the parent of the last selected
+        folder so the user can easily pick a different export directory."""
+        if self.cf_folder != Path('.'):
+            self.fb_dir = self.cf_folder.parent
+        self.screen = Screen.FOLDER_BROWSER
+        self._fb_refresh()
 
     def _fb_refresh(self) -> None:
         """Populate fb_entries from fb_dir — directories only.
