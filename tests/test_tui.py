@@ -688,3 +688,76 @@ def test_settings_save_includes_branch_config(tmp_path, monkeypatch):
     assert model.st_values['import_branches'] in ('main', 'all')
     assert model.st_values['export_markdown'] in ('main', 'all')
     assert model.st_values['export_jsonl'] in ('main', 'all')
+
+
+# ── REVIEW editor ──────────────────────────────────────────────────────────────
+
+def test_review_enter_opens_editor(monkeypatch):
+    rows = [_make_row('c1', 'Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.rv_editing is True
+    view = model.view()
+    assert 'Tags' in view
+
+
+def test_review_editor_escape_returns_to_table(monkeypatch):
+    rows = [_make_row('c1', 'Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.rv_editing is True
+    model, _ = model.update(tea.KeyMsg(key='escape'))
+    assert model.rv_editing is False
+
+
+def test_review_editor_typing_updates_tags_draft(monkeypatch):
+    rows = [_make_row('c1', 'Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: _MockDB(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    for ch in 'pyt':
+        model, _ = model.update(tea.KeyMsg(key=ch))
+    assert 'pyt' in model.rv_edit_values.get('tags_draft', '')
+
+
+def test_review_editor_autocomplete_shown(monkeypatch):
+    class MockDBWithTags(_MockDB):
+        def get_all_tags(self):
+            return ['python', 'pytest', 'rust']
+    rows = [_make_row('c1', 'Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: MockDBWithTags(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    for ch in 'py':
+        model, _ = model.update(tea.KeyMsg(key=ch))
+    view = model.view()
+    assert 'python' in view or 'pytest' in view
+
+
+def test_review_editor_ctrl_s_saves(monkeypatch):
+    saved = {}
+    class MockDBSave(_MockDB):
+        def update_branch_tags(self, branch_id, tags, project, category, syntax):
+            saved['branch_id'] = branch_id
+            saved['tags'] = tags
+    rows = [_make_row('c1', 'Chat')]
+    monkeypatch.setattr('tui.DatabaseManager', lambda path: MockDBSave(rows))
+    model = AppModel()
+    model.screen = Screen.REVIEW
+    model._load_review_data()
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    model.rv_edit_values['tags_draft'] = 'python, async'
+    model, _ = model.update(tea.KeyMsg(key='ctrl+s'))
+    assert saved.get('branch_id') == 'c1__branch_1'
+    assert 'python' in saved.get('tags', [])
+    assert 'async' in saved.get('tags', [])

@@ -209,6 +209,11 @@ class AppModel(tea.Model):
         self.rv_rows: list[dict] = []
         self.rv_cursor: int = 0
         self.rv_editing: bool = False
+        self.rv_edit_field: int = 0    # 0=tags_draft, 1=project, 2=category, 3=syntax_draft
+        self.rv_edit_values: dict[str, str] = {}
+        self.rv_autocomplete: list[str] = []
+        self.rv_all_tags: list[str] = []
+        self.rv_status: str = ''
 
         # SETTINGS
         st_defaults = _load_settings()
@@ -468,9 +473,40 @@ class AppModel(tea.Model):
         key = msg.key
 
         if self.rv_editing:
-            # editing handled in Task 10 — pass for now
+            edit_fields = ['tags_draft', 'project', 'category', 'syntax_draft']
+            n = len(edit_fields)
             if key == 'escape':
                 self.rv_editing = False
+                self.rv_status = ''
+            elif key == 'ctrl+s':
+                self._save_edit()
+            elif key == 'tab':
+                self.rv_edit_field = (self.rv_edit_field + 1) % (n + 1)
+                self.rv_autocomplete = []
+            elif key == 'shift+tab':
+                self.rv_edit_field = (self.rv_edit_field - 1) % (n + 1)
+                self.rv_autocomplete = []
+            elif key == 'enter' and self.rv_edit_field == n:
+                self._save_edit()
+            elif self.rv_edit_field < n:
+                fk = edit_fields[self.rv_edit_field]
+                current = self.rv_edit_values.get(fk, '')
+                if key == 'backspace':
+                    self.rv_edit_values[fk] = current[:-1]
+                elif key == 'ctrl+u':
+                    self.rv_edit_values[fk] = ''
+                elif len(key) == 1:
+                    self.rv_edit_values[fk] = current + key
+                # Update autocomplete for tags field
+                if fk == 'tags_draft':
+                    partial = self.rv_edit_values[fk].rsplit(',', 1)[-1].strip()
+                    if partial:
+                        self.rv_autocomplete = [
+                            t for t in self.rv_all_tags
+                            if t.lower().startswith(partial.lower())
+                        ][:5]
+                    else:
+                        self.rv_autocomplete = []
             return self, None
 
         if key == 'escape':
@@ -480,7 +516,7 @@ class AppModel(tea.Model):
         elif key in ('up', 'k') and self.rv_rows:
             self.rv_cursor = max(self.rv_cursor - 1, 0)
         elif key == 'enter' and self.rv_rows:
-            self.rv_editing = True
+            self._open_editor()
         return self, None
 
     def _view_main(self) -> str:
@@ -613,10 +649,50 @@ class AppModel(tea.Model):
 
         lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
         return self._panel('\n'.join(lines))
+    def _view_review_editor(self) -> str:
+        row = self.rv_rows[self.rv_cursor]
+        title = (row.get('title') or 'Untitled')[:40]
+        lines = [self._header(f'Edit: {title}'), '']
+        edit_fields = ['tags_draft', 'project', 'category', 'syntax_draft']
+        labels = {
+            'tags_draft':   'Tags (comma-separated)',
+            'project':      'Project',
+            'category':     'Category',
+            'syntax_draft': 'Syntax (comma-separated)',
+        }
+        for i, fk in enumerate(edit_fields):
+            focused = (i == self.rv_edit_field)
+            label = labels[fk]
+            value = self.rv_edit_values.get(fk, '')
+            label_s = sel_style.render(label) if focused else muted_style.render(label)
+            val_display = f'{value}\u2588' if focused else value or muted_style.render('(empty)')
+            lines.append(f'  {label_s}')
+            lines.append(f'  {val_display}')
+            if focused and fk == 'tags_draft' and self.rv_autocomplete:
+                lines.append(muted_style.render('  Suggestions: ' + '  '.join(self.rv_autocomplete)))
+            lines.append('')
+
+        # Read-only inferred fields
+        lines.append(muted_style.render('  Inferred tags:   ' + ', '.join(row.get('inferred_tags') or [])))
+        lines.append(muted_style.render('  Inferred syntax: ' + ', '.join(row.get('inferred_syntax') or [])))
+        lines.append('')
+
+        # Save button
+        save_focused = (self.rv_edit_field == len(edit_fields))
+        btn = sel_style.render('[ Save ]') if save_focused else muted_style.render('[ Save ]')
+        lines.append(f'  {btn}')
+
+        if self.rv_status:
+            prefix, _, rest = self.rv_status.partition(':')
+            s = success_style.render(rest) if prefix == 'ok' else error_style.render(rest)
+            lines += ['', f'  {s}']
+
+        lines += ['', self._footer('tab next field   ctrl+s save   esc back')]
+        return self._panel('\n'.join(lines))
+
     def _view_review(self) -> str:
-        if self.rv_editing:
-            # editing view handled in Task 10 — placeholder for now
-            return self._panel('\n'.join([self._header('Edit Tags'), '', muted_style.render('  (editor coming soon)'), '', self._footer('esc back')]))
+        if self.rv_editing and self.rv_rows:
+            return self._view_review_editor()
 
         lines = [self._header('Review & Tag'), '']
 
@@ -668,6 +744,39 @@ class AppModel(tea.Model):
             self.fb_entries = []
         self.fb_cursor = 0
         self.fb_status = ''
+
+    def _open_editor(self) -> None:
+        if not self.rv_rows:
+            return
+        row = self.rv_rows[self.rv_cursor]
+        self.rv_edit_field = 0
+        self.rv_edit_values = {
+            'tags_draft':   ', '.join(row.get('tags') or []),
+            'project':      row.get('project') or '',
+            'category':     row.get('category') or '',
+            'syntax_draft': ', '.join(row.get('syntax') or []),
+        }
+        self.rv_all_tags = self._db.get_all_tags()
+        self.rv_autocomplete = []
+        self.rv_editing = True
+        self.rv_status = ''
+
+    def _save_edit(self) -> None:
+        if not self.rv_rows:
+            return
+        row = self.rv_rows[self.rv_cursor]
+        tags = [t.strip() for t in self.rv_edit_values.get('tags_draft', '').split(',') if t.strip()]
+        project = self.rv_edit_values.get('project', '').strip() or None
+        category = self.rv_edit_values.get('category', '').strip() or None
+        syntax = [s.strip() for s in self.rv_edit_values.get('syntax_draft', '').split(',') if s.strip()]
+        self._db.update_branch_tags(row['branch_id'], tags, project, category, syntax)
+        # Update in-memory row immediately
+        row['tags'] = tags
+        row['project'] = project
+        row['category'] = category
+        row['syntax'] = syntax
+        self.rv_all_tags = self._db.get_all_tags()
+        self.rv_status = 'ok:Saved'
 
     def _load_review_data(self) -> None:
         """Load/refresh branches from DB into REVIEW state."""
