@@ -443,7 +443,15 @@ def _make_st_model() -> AppModel:
     m.screen = Screen.SETTINGS
     m.width, m.height = 80, 24
     m.st_cursor = 0
-    m.st_values = {'output_dir': './output', 'user_name': '', 'chatgpt_assistant': '', 'deepseek_assistant': ''}
+    m.st_values = {
+        'output_dir': './output',
+        'user_name': '',
+        'chatgpt_assistant': '',
+        'deepseek_assistant': '',
+        'import_branches': 'all',
+        'export_markdown': 'all',
+        'export_jsonl': 'all',
+    }
     m.st_status = ''
     return m
 
@@ -473,14 +481,14 @@ def test_st_shift_tab_moves_to_prev_field():
 
 def test_st_tab_wraps_to_save_button():
     m = _make_st_model()
-    m.st_cursor = 3  # last text field
+    m.st_cursor = 6  # last toggle field (export_jsonl)
     m, _ = m.update(tea.KeyMsg(key='tab'))
-    assert m.st_cursor == 4  # Save button
+    assert m.st_cursor == 7  # Save button
 
 
 def test_st_tab_wraps_from_save_button_to_first_field():
     m = _make_st_model()
-    m.st_cursor = 4  # Save button
+    m.st_cursor = 7  # Save button
     m, _ = m.update(tea.KeyMsg(key='tab'))
     assert m.st_cursor == 0
 
@@ -489,7 +497,7 @@ def test_st_shift_tab_wraps_from_first_field_to_save_button():
     m = _make_st_model()
     m.st_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='shift+tab'))
-    assert m.st_cursor == 4
+    assert m.st_cursor == 7
 
 
 def test_st_typing_updates_focused_field():
@@ -514,7 +522,7 @@ def test_st_save_button_enter_writes_toml(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setattr('tui._save_settings', lambda v: saved.update(v))
     m = _make_st_model()
-    m.st_cursor = 4  # Save button
+    m.st_cursor = 7  # Save button
     m.st_values['user_name'] = 'Matt'
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert saved.get('user_name') == 'Matt'
@@ -555,3 +563,44 @@ def test_appmodel_window_size_msg_updates_dimensions():
     m, _ = m.update(tea.WindowSizeMsg(width=120, height=40))
     assert m.width == 120
     assert m.height == 40
+
+
+def test_settings_branch_toggles_present_in_view():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    view = model.view()
+    assert 'Import branches' in view
+    assert 'Markdown export branches' in view
+    assert 'JSONL export branches' in view
+
+
+def test_settings_branch_toggle_cycles_on_enter():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    # Navigate to import_branches toggle (index 4)
+    for _ in range(4):
+        model, _ = model.update(tea.KeyMsg(key='tab'))
+    assert model.st_cursor == 4
+    initial = model.st_values.get('import_branches', 'all')
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['import_branches'] != initial
+
+
+def test_settings_tab_wraps_at_8():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    for _ in range(8):
+        model, _ = model.update(tea.KeyMsg(key='tab'))
+    assert model.st_cursor == 0
+
+
+def test_settings_save_includes_branch_config(tmp_path, monkeypatch):
+    # Just verify that the branch fields exist in st_values with valid values
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    assert 'import_branches' in model.st_values
+    assert 'export_markdown' in model.st_values
+    assert 'export_jsonl' in model.st_values
+    assert model.st_values['import_branches'] in ('main', 'all')
+    assert model.st_values['export_markdown'] in ('main', 'all')
+    assert model.st_values['export_jsonl'] in ('main', 'all')

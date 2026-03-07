@@ -88,11 +88,15 @@ def _load_settings() -> dict[str, str]:
         except Exception:
             pass
     providers = data.get('providers', {})
+    branches = data.get('branches', {})
     return {
         'output_dir':        data.get('output', {}).get('dir', './output'),
         'user_name':         data.get('user', {}).get('name', ''),
         'chatgpt_assistant': providers.get('chatgpt', {}).get('assistant_name', ''),
         'deepseek_assistant': providers.get('deepseek', {}).get('assistant_name', ''),
+        'import_branches':   branches.get('import', 'all'),
+        'export_markdown':   branches.get('export_markdown', 'all'),
+        'export_jsonl':      branches.get('export_jsonl', 'all'),
     }
 
 
@@ -129,6 +133,15 @@ def _save_settings(values: dict[str, str]) -> None:
         data.setdefault('providers', {}).setdefault('chatgpt', {})['assistant_name'] = values['chatgpt_assistant']
     if values.get('deepseek_assistant'):
         data.setdefault('providers', {}).setdefault('deepseek', {})['assistant_name'] = values['deepseek_assistant']
+    branches_data = {}
+    if values.get('import_branches'):
+        branches_data['import'] = values['import_branches']
+    if values.get('export_markdown'):
+        branches_data['export_markdown'] = values['export_markdown']
+    if values.get('export_jsonl'):
+        branches_data['export_jsonl'] = values['export_jsonl']
+    if branches_data:
+        data['branches'] = branches_data
     toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
 
 
@@ -189,13 +202,20 @@ class AppModel(tea.Model):
 
         # SETTINGS
         st_defaults = _load_settings()
-        self.st_fields: list[str] = ['output_dir', 'user_name', 'chatgpt_assistant', 'deepseek_assistant']
+        self.st_fields: list[str] = [
+            'output_dir', 'user_name', 'chatgpt_assistant', 'deepseek_assistant',
+            'import_branches', 'export_markdown', 'export_jsonl',
+        ]
         self.st_labels: dict[str, str] = {
-            'output_dir':        'Output directory',
-            'user_name':         'User name',
-            'chatgpt_assistant': 'ChatGPT assistant name',
+            'output_dir':         'Output directory',
+            'user_name':          'User name',
+            'chatgpt_assistant':  'ChatGPT assistant name',
             'deepseek_assistant': 'DeepSeek assistant name',
+            'import_branches':    'Import branches',
+            'export_markdown':    'Markdown export branches',
+            'export_jsonl':       'JSONL export branches',
         }
+        self.st_toggle_fields: set[str] = {'import_branches', 'export_markdown', 'export_jsonl'}
         self.st_values: dict[str, str] = st_defaults
         self.st_cursor: int = 0
         self.st_status: str = ''
@@ -416,13 +436,18 @@ class AppModel(tea.Model):
                 self.st_status = f'error:{e}'
         elif self.st_cursor < n_fields:
             field_key = self.st_fields[self.st_cursor]
-            current = self.st_values.get(field_key, '')
-            if key == 'backspace':
-                self.st_values[field_key] = current[:-1]
-            elif key == 'ctrl+u':
-                self.st_values[field_key] = ''
-            elif len(key) == 1:
-                self.st_values[field_key] = current + key
+            if field_key in self.st_toggle_fields:
+                if key in ('enter', ' '):
+                    current = self.st_values.get(field_key, 'all')
+                    self.st_values[field_key] = 'main' if current == 'all' else 'all'
+            else:
+                current = self.st_values.get(field_key, '')
+                if key == 'backspace':
+                    self.st_values[field_key] = current[:-1]
+                elif key == 'ctrl+u':
+                    self.st_values[field_key] = ''
+                elif len(key) == 1:
+                    self.st_values[field_key] = current + key
             self.st_status = ''
         return self, None
     def _key_review(self, msg):
@@ -540,7 +565,10 @@ class AppModel(tea.Model):
             value = self.st_values.get(fk, '')
             focused = (i == self.st_cursor)
             label_s = sel_style.render(label) if focused else muted_style.render(label)
-            val_display = f'{value}\u2588' if focused else value or muted_style.render('(default)')
+            if fk in self.st_toggle_fields:
+                val_display = sel_style.render(f'[ {value} ]') if focused else muted_style.render(f'  {value}  ')
+            else:
+                val_display = f'{value}\u2588' if focused else value or muted_style.render('(default)')
             lines.append(f'  {label_s}')
             lines.append(f'  {val_display}')
             lines.append('')
