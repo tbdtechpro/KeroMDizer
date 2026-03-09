@@ -627,13 +627,14 @@ class AppModel(tea.Model):
             db_path = self._db._path
 
             def _do_sweep():
-                from config import load_export_config, load_db_path
+                from config import load_export_config
                 from db import DatabaseManager
                 _db = DatabaseManager(db_path)
                 try:
                     _db.backfill_md_filenames(output_dir)
                     exp_cfg = load_export_config()
-                    count = _alternate_export_sweep(_db, output_dir, exp_cfg)
+                    # Aliases are read per-row from the DB — no global persona needed
+                    count = _alternate_export_sweep(_db, output_dir, exp_cfg, force=True)
                 finally:
                     _db.close()
                 if program:
@@ -1298,11 +1299,80 @@ def _to_iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
+def _segments_to_text(content: list[dict]) -> str:
+    """Reconstruct raw GFM text from stored content segments (inverse of parse_content)."""
+    parts = []
+    for seg in content:
+        if seg['type'] == 'prose':
+            parts.append(seg['text'])
+        elif seg['type'] == 'code':
+            lang = seg.get('language') or ''
+            parts.append(f'```{lang}\n{seg["text"]}```')
+    return '\n\n'.join(parts)
+
+
+def _render_from_db_row(row: dict, user_name: str | None = None, assistant_name: str | None = None) -> str:
+    """Render GFM markdown for a branch directly from a DB row dict.
+
+    This is the DB-driven equivalent of MarkdownRenderer.render() — no .md
+    file required on disk.
+
+    Speaker labels come from the stored aliases (set at import time) when
+    available, falling back to user_name / assistant_name params, then to
+    provider-canon defaults ('User' / 'ChatGPT' / 'DeepSeek').
+    """
+    from datetime import datetime
+    title = row.get('title') or 'Untitled'
+    create_time_str = row.get('conv_create_time') or ''
+    model_slug = row.get('model_slug') or ''
+    branch_index = row.get('branch_index', 1)
+    branch_count = row.get('branch_count', 1)
+    provider = row.get('provider') or 'chatgpt'
+    messages = row.get('messages') or []
+
+    # Alias priority: stored DB value → caller param → provider canon
+    _canon_assistant = {'chatgpt': 'ChatGPT', 'deepseek': 'DeepSeek'}.get(provider, 'Assistant')
+    _user   = row.get('user_alias') or user_name or 'User'
+    _asst   = row.get('assistant_alias') or assistant_name or _canon_assistant
+
+    lines = [f'# {title}', '']
+
+    date_str = 'unknown'
+    if create_time_str:
+        try:
+            dt = datetime.fromisoformat(create_time_str)
+            date_str = dt.strftime('%Y-%m-%d')
+        except (ValueError, TypeError):
+            pass
+    parts = [date_str]
+    if model_slug:
+        parts.append(model_slug)
+    if branch_count and branch_count > 1:
+        parts.append(f'Branch {branch_index} of {branch_count}')
+    lines += [f'_{"  ·  ".join(parts)}_', '']
+
+    for msg in messages:
+        lines.append('---')
+        lines.append('')
+        role = msg.get('role', '')
+        header = f'### 👤 {_user}' if role == 'user' else f'### 🤖 {_asst}'
+        text = _segments_to_text(msg.get('content', []))
+        lines += [header, '', text, '']
+
+    lines += ['---', '']
+    return '\n'.join(lines)
+
+
+def _alternate_export_sweep(
+    db, output_dir: Path, exp_cfg, force: bool = False,
+    user_name: str | None = None, assistant_name: str | None = None,
+) -> int:
     """Generate alternate format files for every DB branch that has an md_filename.
 
-    Skips files that already exist so re-runs are fast.  Returns the number of
-    new files written.
+    Renders markdown directly from DB data — no .md file required on disk.
+    When force=True (user-triggered), always overwrites existing output files.
+    When force=False (post-import sweep), skips files that already exist.
+    Returns the number of files written.
     """
     if not (exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled):
         return 0
@@ -1311,21 +1381,17 @@ def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
         md_filename = row.get('md_filename') or ''
         if not md_filename:
             continue
-        md_path = output_dir / md_filename
-        if not md_path.exists():
-            continue
-        try:
-            content = md_path.read_text(encoding='utf-8')
-        except OSError:
-            continue
         stem = md_filename[:-3]  # strip .md
+        content = _render_from_db_row(row, user_name=user_name, assistant_name=assistant_name)
+        if not content:
+            continue
         if exp_cfg.html_github_enabled:
             try:
                 from html_github_exporter import export_html_github
                 html_dir = (Path(exp_cfg.html_github_dir).expanduser()
                             if exp_cfg.html_github_dir else output_dir / 'html-github')
                 out = html_dir / f'{stem}.html'
-                if not out.exists():
+                if force or not out.exists():
                     export_html_github(content, out)
                     count += 1
             except Exception:
@@ -1336,7 +1402,7 @@ def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
                 retro_dir = (Path(exp_cfg.html_retro_dir).expanduser()
                              if exp_cfg.html_retro_dir else output_dir / 'html-retro')
                 out = retro_dir / f'{stem}.html'
-                if not out.exists():
+                if force or not out.exists():
                     export_html_retro(content, out)
                     count += 1
             except Exception:
@@ -1347,7 +1413,7 @@ def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
                 docx_dir = (Path(exp_cfg.docx_dir).expanduser()
                             if exp_cfg.docx_dir else output_dir / 'docx')
                 out = docx_dir / f'{stem}.docx'
-                if not out.exists():
+                if force or not out.exists():
                     export_docx(content, out)
                     count += 1
             except Exception:
@@ -1515,6 +1581,8 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                         model_slug=conv.model_slug,
                         branch_count=len(conv.branches),
                         branches=db_branches,
+                        user_alias=persona.user_name,
+                        assistant_alias=persona.assistant_name,
                     )
 
                 if program:
