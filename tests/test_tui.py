@@ -128,16 +128,20 @@ def test_fb_cursor_moves_down(tmp_path):
 def test_fb_cursor_clamps_at_bottom(tmp_path):
     (tmp_path / 'only').mkdir()
     m = _make_fb_model(tmp_path)
-    m.fb_cursor = 0
+    # fb_entries now has 2 items: '..' parent + 'only'
+    assert len(m.fb_entries) == 2
+    m.fb_cursor = 1  # on the last real entry
     m, _ = m.update(tea.KeyMsg(key='down'))
-    assert m.fb_cursor == 0  # only one entry, stays
+    assert m.fb_cursor == 1  # clamped at bottom
 
 
 def test_fb_enter_descends_into_dir(tmp_path):
     sub = tmp_path / 'subdir'
     sub.mkdir()
     m = _make_fb_model(tmp_path)
-    # cursor is on subdir (first and only dir entry)
+    # fb_entries[0] = '..' parent, fb_entries[1] = subdir
+    assert len(m.fb_entries) == 2
+    m.fb_cursor = 1  # move to subdir
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert m.fb_dir == sub
 
@@ -225,14 +229,16 @@ def test_fb_clipboard_msg_appends_to_input(tmp_path):
 
 
 def test_fb_enter_in_export_folder_advances_to_provider_select(tmp_path):
-    """Enter in an export folder (files only, no subdirs) selects the current folder."""
+    """Space selects current folder (export folder with no visible subdirs)."""
     (tmp_path / 'conversations.json').write_text('[]')
     m = _make_fb_model(tmp_path)
     m.fb_dir = tmp_path
     m._fb_refresh()
-    # Files are filtered out — no entries shown
-    assert len(m.fb_entries) == 0
-    m, _ = m.update(tea.KeyMsg(key='enter'))
+    # Only the '..' parent entry is shown (conversations.json is a file, filtered out)
+    assert len(m.fb_entries) == 1
+    assert m.fb_entries[0] == tmp_path.parent
+    # Space always selects the *current* directory, regardless of cursor
+    m, _ = m.update(tea.KeyMsg(key=' '))
     assert m.screen == Screen.PROVIDER_SELECT
 
 

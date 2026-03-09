@@ -240,6 +240,9 @@ class AppModel(tea.Model):
         self.fb_text_mode: bool = False
         self.fb_text_input: str = ''
         self.fb_status: str = ''
+        self.fb_return_field: str | None = None   # None = import mode; else settings field key
+        self.fb_return_to: Screen = Screen.MAIN   # screen to go back to after selection
+        self.fb_return_values: str = 'st'         # 'st' = st_values, 'es' = es_values
 
         # PROVIDER_SELECT
         self.ps_options: list[str] = ['auto', 'chatgpt', 'deepseek']
@@ -441,7 +444,8 @@ class AppModel(tea.Model):
 
         # ── Browse mode ────────────────────────────────────────────────────────
         if key == 'escape':
-            self.screen = Screen.MAIN
+            self.screen = self.fb_return_to
+            self.fb_return_field = None
         elif key in ('down', 'j'):
             self.fb_cursor = min(self.fb_cursor + 1, len(self.fb_entries) - 1)
         elif key in ('up', 'k'):
@@ -466,11 +470,23 @@ class AppModel(tea.Model):
         return self, None
 
     def _select_folder(self, path: Path) -> None:
-        """Advance to PROVIDER_SELECT with the chosen folder."""
-        self.cf_folder = path
-        self.ps_cursor = 0
-        self.ps_detected = ''
-        self.screen = Screen.PROVIDER_SELECT
+        """Select a folder — either for import or to populate a settings field."""
+        if self.fb_return_field is not None:
+            # Settings mode: write the chosen path into the right dict and go back
+            if self.fb_return_values == 'es':
+                self.es_values[self.fb_return_field] = str(path)
+                self.es_status = ''
+            else:
+                self.st_values[self.fb_return_field] = str(path)
+                self.st_status = ''
+            self.screen = self.fb_return_to
+            self.fb_return_field = None
+        else:
+            # Import mode: advance to provider selection
+            self.cf_folder = path
+            self.ps_cursor = 0
+            self.ps_detected = ''
+            self.screen = Screen.PROVIDER_SELECT
 
     def _key_provider_select(self, msg):
         if not isinstance(msg, tea.KeyMsg):
@@ -562,6 +578,8 @@ class AppModel(tea.Model):
                 if key in ('enter', ' '):
                     current = self.st_values.get(field_key, 'all')
                     self.st_values[field_key] = 'main' if current == 'all' else 'all'
+            elif key == 'enter' and field_key == 'output_dir':
+                self._open_dir_browser(field_key, Screen.SETTINGS, 'st')
             else:
                 current = self.st_values.get(field_key, '')
                 if key == 'backspace':
@@ -624,10 +642,13 @@ class AppModel(tea.Model):
             threading.Thread(target=_do_sweep, daemon=True).start()
         elif self.es_cursor < n:
             field_key = self.es_fields[self.es_cursor]
+            _es_dir_fields = {'html_github_dir', 'html_retro_dir', 'docx_dir'}
             if field_key in self.es_toggle_fields:
                 if key in ('enter', ' '):
                     current = self.es_values.get(field_key, 'no')
                     self.es_values[field_key] = 'no' if current == 'yes' else 'yes'
+            elif key == 'enter' and field_key in _es_dir_fields:
+                self._open_dir_browser(field_key, Screen.EXPORT_SETTINGS, 'es')
             else:
                 current = self.es_values.get(field_key, '')
                 if key == 'backspace':
@@ -888,7 +909,11 @@ class AppModel(tea.Model):
         lines.append(muted_style.render(path_str))
         lines.append('')
 
-        if (self.fb_dir / 'conversations.json').exists():
+        if self.fb_return_field is not None:
+            # Settings mode: always show a select-folder prompt
+            lines.append(hint_style.render('  Navigate to target directory, then press space or enter to select'))
+            lines.append('')
+        elif (self.fb_dir / 'conversations.json').exists():
             lines.append(success_style.render('  ✓ Export folder detected — press enter or space to import'))
             lines.append('')
 
@@ -902,11 +927,16 @@ class AppModel(tea.Model):
         inner_w = w - 6   # panel border (2) + padding (2*2)
         max_label = max(10, inner_w - 5)  # 5 = len('  ▶  ')
 
+        parent = self.fb_dir.parent
         if not shown and not (self.fb_dir / 'conversations.json').exists():
             lines.append(muted_style.render('  (empty directory)'))
         for i, entry in enumerate(shown):
             idx = start + i
-            label = entry.name + ('/' if entry.is_dir() else '')
+            # Show parent as '..' rather than the full dir name
+            if parent != self.fb_dir and entry == parent:
+                label = '../'
+            else:
+                label = entry.name + ('/' if entry.is_dir() else '')
             if len(label) > max_label:
                 label = label[:max_label - 1] + '…'
             if idx == self.fb_cursor:
@@ -915,7 +945,7 @@ class AppModel(tea.Model):
                 row_style = lipgloss.Style().foreground(C_TEXT) if entry.is_dir() else muted_style
                 lines.append(row_style.render(f'     {label}'))
 
-        lines += ['', self._footer('↑↓ navigate   enter open / select   backspace up   / type path   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter open   space select current   / type path   esc back')]
         return self._panel('\n'.join(lines))
     def _view_provider_select(self) -> str:
         lines = [self._header('Select Provider'), '']
@@ -985,7 +1015,7 @@ class AppModel(tea.Model):
             s = success_style.render(rest) if prefix == 'ok' else error_style.render(rest)
             lines += ['', f'  {s}']
 
-        lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
+        lines += ['', self._footer('tab next field   shift+tab prev   enter browse dir   esc back')]
         return self._panel('\n'.join(lines))
     def _view_export_settings(self) -> str:
         lines = [self._header('Export'), '']
@@ -1025,7 +1055,7 @@ class AppModel(tea.Model):
         if self.es_status:
             lines += ['', success_style.render(f'  {self.es_status}')]
 
-        lines += ['', self._footer('↑↓ navigate   enter/space toggle / save / run   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter toggle / browse dir / save / run   esc back')]
         return self._panel('\n'.join(lines))
 
     def _view_review_editor(self) -> str:
@@ -1115,11 +1145,27 @@ class AppModel(tea.Model):
         lines += ['', self._footer('↑↓ navigate   enter view   e edit tags   esc back')]
         return self._panel('\n'.join(lines))
 
+    def _open_dir_browser(self, field_key: str, return_screen: Screen, values_key: str) -> None:
+        """Open the folder browser to pick a directory for a settings field."""
+        values = self.es_values if values_key == 'es' else self.st_values
+        current_val = values.get(field_key, '').strip()
+        start_dir = Path(current_val).expanduser() if current_val else Path.home()
+        if not start_dir.is_dir():
+            start_dir = Path.home()
+        self.fb_dir = start_dir
+        self.fb_return_field = field_key
+        self.fb_return_to = return_screen
+        self.fb_return_values = values_key
+        self._fb_refresh()
+        self.screen = Screen.FOLDER_BROWSER
+
     def _start_new_import(self) -> None:
         """Navigate to FOLDER_BROWSER, landing at the parent of the last selected
         folder so the user can easily pick a different export directory."""
         if self.cf_folder != Path('.'):
             self.fb_dir = self.cf_folder.parent
+        self.fb_return_field = None
+        self.fb_return_to = Screen.MAIN
         self.screen = Screen.FOLDER_BROWSER
         self._fb_refresh()
 
@@ -1127,12 +1173,17 @@ class AppModel(tea.Model):
         """Populate fb_entries from fb_dir — directories only.
 
         Files are never shown; the app handles JSON selection internally.
+        Always prepends a '..' parent entry (except at filesystem root).
         """
         try:
             entries = sorted(self.fb_dir.iterdir(), key=lambda p: p.name.lower())
             self.fb_entries = [e for e in entries if e.is_dir() and not e.name.startswith('.')]
         except PermissionError:
             self.fb_entries = []
+        # Prepend parent directory so users can navigate up without knowing the key
+        parent = self.fb_dir.parent
+        if parent != self.fb_dir:
+            self.fb_entries.insert(0, parent)
         self.fb_cursor = 0
         self.fb_status = ''
 
