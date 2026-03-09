@@ -38,12 +38,17 @@ class DatabaseManager:
         self._conn.row_factory = sqlite3.Row
         self._conn.executescript(_SCHEMA)
         self._conn.commit()
-        # Migrate: add md_filename column if not present (idempotent)
-        try:
-            self._conn.execute("ALTER TABLE branches ADD COLUMN md_filename TEXT")
-            self._conn.commit()
-        except sqlite3.OperationalError:
-            pass  # Column already exists
+        # Migrations — each ALTER TABLE is idempotent (ignored if column already exists)
+        for _sql in [
+            "ALTER TABLE branches ADD COLUMN md_filename TEXT",
+            "ALTER TABLE conversations ADD COLUMN user_alias TEXT",
+            "ALTER TABLE conversations ADD COLUMN assistant_alias TEXT",
+        ]:
+            try:
+                self._conn.execute(_sql)
+                self._conn.commit()
+            except sqlite3.OperationalError:
+                pass  # Column already exists
 
     def needs_update(self, conversation_id: str, update_time: str) -> bool:
         """Return True if conversation is new or has a newer update_time."""
@@ -66,13 +71,23 @@ class DatabaseManager:
         model_slug: str | None,
         branch_count: int,
         branches: list[dict],
+        user_alias: str | None = None,
+        assistant_alias: str | None = None,
     ) -> None:
-        """Insert or replace a conversation and all its branches."""
+        """Insert or replace a conversation and all its branches.
+
+        user_alias / assistant_alias are the display names that were active at
+        import time (may differ from the provider canon if the user configured
+        custom names).  Stored so exports can reproduce the same labels without
+        needing to re-read config.
+        """
         self._conn.execute(
             '''INSERT OR REPLACE INTO conversations
-               (conversation_id, provider, title, create_time, update_time, model_slug, branch_count)
-               VALUES (?, ?, ?, ?, ?, ?, ?)''',
-            (conversation_id, provider, title, create_time, update_time, model_slug, branch_count),
+               (conversation_id, provider, title, create_time, update_time, model_slug,
+                branch_count, user_alias, assistant_alias)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)''',
+            (conversation_id, provider, title, create_time, update_time, model_slug,
+             branch_count, user_alias, assistant_alias),
         )
         for b in branches:
             # Preserve existing user tags/project/category/syntax on re-import
@@ -125,7 +140,8 @@ class DatabaseManager:
             '''SELECT b.branch_id, b.conversation_id, b.branch_index, b.is_main_branch,
                       b.messages, b.tags, b.project, b.category, b.syntax,
                       b.inferred_tags, b.inferred_syntax, b.md_filename,
-                      c.title, c.provider, c.create_time AS conv_create_time, c.model_slug
+                      c.title, c.provider, c.create_time AS conv_create_time, c.model_slug,
+                      c.branch_count, c.user_alias, c.assistant_alias
                FROM branches b
                JOIN conversations c ON b.conversation_id = c.conversation_id
                WHERE b.branch_id = ?''',
@@ -142,7 +158,8 @@ class DatabaseManager:
         q = '''SELECT b.branch_id, b.conversation_id, b.branch_index, b.is_main_branch,
                       b.messages, b.tags, b.project, b.category, b.syntax,
                       b.inferred_tags, b.inferred_syntax, b.md_filename,
-                      c.title, c.provider, c.create_time AS conv_create_time, c.model_slug
+                      c.title, c.provider, c.create_time AS conv_create_time, c.model_slug,
+                      c.branch_count, c.user_alias, c.assistant_alias
                FROM branches b
                JOIN conversations c ON b.conversation_id = c.conversation_id'''
         if main_only:
