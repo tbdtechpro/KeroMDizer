@@ -65,7 +65,7 @@ def export_html_retro(md_content: str, output_path: Path) -> None:
     body = _md_to_retro_html(md_content)
     m = re.search(r'^# (.+)$', md_content, re.MULTILINE)
     title_text = html.escape(m.group(1)) if m else 'Conversation'
-    pygments_css = _HtmlFormatter().get_style_defs('.highlight') if _PYGMENTS else ''
+    pygments_css = _HtmlFormatter().get_style_defs('.highlight') if _PYGMENTS else ''  # type: ignore[possibly-unbound]
     doc = f'''<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 3.2 Final//EN">
 <HTML>
 <HEAD>

@@ -40,7 +40,7 @@ def test_docx_title_heading(tmp_path):
     out = tmp_path / 'test.docx'
     export_docx(MINIMAL_MD, out)
     doc = Document(str(out))
-    headings = [p for p in doc.paragraphs if p.style.name.startswith('Heading 1')]
+    headings = [p for p in doc.paragraphs if getattr(p.style, 'name', '').startswith('Heading 1')]
     assert any('My Conversation' in p.text for p in headings)
 
 
@@ -48,7 +48,7 @@ def test_docx_role_headers(tmp_path):
     out = tmp_path / 'test.docx'
     export_docx(MINIMAL_MD, out)
     doc = Document(str(out))
-    headings = [p for p in doc.paragraphs if p.style.name.startswith('Heading 3')]
+    headings = [p for p in doc.paragraphs if getattr(p.style, 'name', '').startswith('Heading 3')]
     texts = [p.text for p in headings]
     assert any('User' in t for t in texts)
     assert any('Assistant' in t for t in texts)
