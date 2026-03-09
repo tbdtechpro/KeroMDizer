@@ -354,6 +354,7 @@ def test_md_filename_preserved_on_reimport(tmp_path):
         }],
     )
     row = db.get_branch('conv-mdf__branch_1')
+    assert row is not None
     assert row['md_filename'] == '2026-01-01_Test.md'
 
 
@@ -396,6 +397,7 @@ def test_md_filename_updated_on_reimport(tmp_path):
         }],
     )
     row = db.get_branch('conv-mdf2__branch_1')
+    assert row is not None
     assert row['md_filename'] == 'new.md'
 
 
@@ -420,6 +422,7 @@ def test_md_filename_stored_after_upsert(tmp_path):
         }],
     )
     row = db.get_branch('conv-fn__branch_1')
+    assert row is not None
     assert row['md_filename'] == '2026-01-01_Filename_Test.md'
 
 
@@ -452,6 +455,7 @@ def test_backfill_md_filenames_single_branch(tmp_path):
     count = db.backfill_md_filenames(md_dir)
     assert count == 1
     row = db.get_branch('conv-bf__branch_1')
+    assert row is not None
     assert row['md_filename'] == '2026-02-01_Backfill_Test.md'
 
 
@@ -486,8 +490,11 @@ def test_backfill_md_filenames_multi_branch(tmp_path):
     )
     count = db.backfill_md_filenames(md_dir)
     assert count == 2
-    assert db.get_branch('conv-mb__branch_1')['md_filename'] == '2026-03-01_Multi_Branch.md'
-    assert db.get_branch('conv-mb__branch_2')['md_filename'] == '2026-03-01_Multi_Branch_branch-2.md'
+    row1 = db.get_branch('conv-mb__branch_1')
+    row2 = db.get_branch('conv-mb__branch_2')
+    assert row1 is not None and row2 is not None
+    assert row1['md_filename'] == '2026-03-01_Multi_Branch.md'
+    assert row2['md_filename'] == '2026-03-01_Multi_Branch_branch-2.md'
 
 
 def test_backfill_skips_already_set(tmp_path):
@@ -518,4 +525,6 @@ def test_backfill_skips_already_set(tmp_path):
     )
     count = db.backfill_md_filenames(md_dir)
     assert count == 0
-    assert db.get_branch('conv-skip__branch_1')['md_filename'] == 'original.md'
+    row = db.get_branch('conv-skip__branch_1')
+    assert row is not None
+    assert row['md_filename'] == 'original.md'

@@ -4,6 +4,7 @@ import re
 from pathlib import Path
 
 from docx import Document
+from docx.document import Document as DocumentType
 from docx.shared import Pt, RGBColor
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
@@ -12,10 +13,10 @@ from docx.oxml import OxmlElement
 _FENCE_RE = re.compile(r'```(\w*)\n(.*?)```', re.DOTALL)
 
 
-def _add_code_block(doc: Document, code: str, language: str = '') -> None:
+def _add_code_block(doc: DocumentType, code: str, language: str = '') -> None:
     """Add a code block paragraph with monospace styling and grey background."""
     p = doc.add_paragraph()
-    p.style = doc.styles['Normal']
+    p.style = doc.styles['Normal']  # type: ignore[assignment]
     run = p.add_run(code)
     run.font.name = 'Courier New'
     run.font.size = Pt(10)
@@ -27,7 +28,7 @@ def _add_code_block(doc: Document, code: str, language: str = '') -> None:
     pPr.append(shd)
 
 
-def _add_prose(doc: Document, text: str) -> None:
+def _add_prose(doc: DocumentType, text: str) -> None:
     """Add prose text as a paragraph, skipping empty blocks."""
     text = text.strip()
     if text:

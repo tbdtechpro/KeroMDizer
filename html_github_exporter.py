@@ -38,11 +38,11 @@ def _highlight_code(code: str, lang: str) -> str:
     if not _PYGMENTS:
         return f'<pre><code>{html.escape(code)}</code></pre>'
     try:
-        lexer = get_lexer_by_name(lang) if lang else TextLexer()
-    except (ClassNotFound, Exception):
-        lexer = TextLexer()
-    formatter = HtmlFormatter(nowrap=False)
-    return highlight(code, lexer, formatter)
+        lexer = get_lexer_by_name(lang) if lang else TextLexer()  # type: ignore[possibly-unbound]
+    except (ClassNotFound, Exception):  # type: ignore[possibly-unbound]
+        lexer = TextLexer()  # type: ignore[possibly-unbound]
+    formatter = HtmlFormatter(nowrap=False)  # type: ignore[possibly-unbound]
+    return highlight(code, lexer, formatter)  # type: ignore[possibly-unbound]
 
 
 def _prose_to_html(text: str) -> str:
@@ -117,7 +117,7 @@ def export_html_github(md_content: str, output_path: Path) -> None:
     body = _md_to_github_html(md_content)
     m = re.search(r'^# (.+)$', md_content, re.MULTILINE)
     title = html.escape(m.group(1)) if m else 'Conversation'
-    pygments_css = HtmlFormatter().get_style_defs('.highlight') if _PYGMENTS else ''
+    pygments_css = HtmlFormatter().get_style_defs('.highlight') if _PYGMENTS else ''  # type: ignore[possibly-unbound]
     doc = f'''<!DOCTYPE html>
 <html lang="en">
 <head>

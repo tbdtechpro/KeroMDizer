@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import bubbletea as tea
-import lipgloss
-from lipgloss import Color
-from lipgloss.themes.catppuccin import catppuccin_mocha as M
+import bubblepy as tea
+import pygloss as lipgloss
+from pygloss import Color
+from pygloss.themes.catppuccin import catppuccin_mocha as M
 from db import DatabaseManager
 
 # ── Colours ────────────────────────────────────────────────────────────────────
@@ -240,6 +240,9 @@ class AppModel(tea.Model):
         self.fb_text_mode: bool = False
         self.fb_text_input: str = ''
         self.fb_status: str = ''
+        self.fb_return_field: str | None = None   # None = import mode; else settings field key
+        self.fb_return_to: Screen = Screen.MAIN   # screen to go back to after selection
+        self.fb_return_values: str = 'st'         # 'st' = st_values, 'es' = es_values
 
         # PROVIDER_SELECT
         self.ps_options: list[str] = ['auto', 'chatgpt', 'deepseek']
@@ -441,7 +444,8 @@ class AppModel(tea.Model):
 
         # ── Browse mode ────────────────────────────────────────────────────────
         if key == 'escape':
-            self.screen = Screen.MAIN
+            self.screen = self.fb_return_to
+            self.fb_return_field = None
         elif key in ('down', 'j'):
             self.fb_cursor = min(self.fb_cursor + 1, len(self.fb_entries) - 1)
         elif key in ('up', 'k'):
@@ -466,11 +470,23 @@ class AppModel(tea.Model):
         return self, None
 
     def _select_folder(self, path: Path) -> None:
-        """Advance to PROVIDER_SELECT with the chosen folder."""
-        self.cf_folder = path
-        self.ps_cursor = 0
-        self.ps_detected = ''
-        self.screen = Screen.PROVIDER_SELECT
+        """Select a folder — either for import or to populate a settings field."""
+        if self.fb_return_field is not None:
+            # Settings mode: write the chosen path into the right dict and go back
+            if self.fb_return_values == 'es':
+                self.es_values[self.fb_return_field] = str(path)
+                self.es_status = ''
+            else:
+                self.st_values[self.fb_return_field] = str(path)
+                self.st_status = ''
+            self.screen = self.fb_return_to
+            self.fb_return_field = None
+        else:
+            # Import mode: advance to provider selection
+            self.cf_folder = path
+            self.ps_cursor = 0
+            self.ps_detected = ''
+            self.screen = Screen.PROVIDER_SELECT
 
     def _key_provider_select(self, msg):
         if not isinstance(msg, tea.KeyMsg):
@@ -562,6 +578,8 @@ class AppModel(tea.Model):
                 if key in ('enter', ' '):
                     current = self.st_values.get(field_key, 'all')
                     self.st_values[field_key] = 'main' if current == 'all' else 'all'
+            elif key == 'enter' and field_key == 'output_dir':
+                self._open_dir_browser(field_key, Screen.SETTINGS, 'st')
             else:
                 current = self.st_values.get(field_key, '')
                 if key == 'backspace':
@@ -609,13 +627,14 @@ class AppModel(tea.Model):
             db_path = self._db._path
 
             def _do_sweep():
-                from config import load_export_config, load_db_path
+                from config import load_export_config
                 from db import DatabaseManager
                 _db = DatabaseManager(db_path)
                 try:
                     _db.backfill_md_filenames(output_dir)
                     exp_cfg = load_export_config()
-                    count = _alternate_export_sweep(_db, output_dir, exp_cfg)
+                    # Aliases are read per-row from the DB — no global persona needed
+                    count = _alternate_export_sweep(_db, output_dir, exp_cfg, force=True)
                 finally:
                     _db.close()
                 if program:
@@ -624,10 +643,13 @@ class AppModel(tea.Model):
             threading.Thread(target=_do_sweep, daemon=True).start()
         elif self.es_cursor < n:
             field_key = self.es_fields[self.es_cursor]
+            _es_dir_fields = {'html_github_dir', 'html_retro_dir', 'docx_dir'}
             if field_key in self.es_toggle_fields:
                 if key in ('enter', ' '):
                     current = self.es_values.get(field_key, 'no')
                     self.es_values[field_key] = 'no' if current == 'yes' else 'yes'
+            elif key == 'enter' and field_key in _es_dir_fields:
+                self._open_dir_browser(field_key, Screen.EXPORT_SETTINGS, 'es')
             else:
                 current = self.es_values.get(field_key, '')
                 if key == 'backspace':
@@ -888,7 +910,11 @@ class AppModel(tea.Model):
         lines.append(muted_style.render(path_str))
         lines.append('')
 
-        if (self.fb_dir / 'conversations.json').exists():
+        if self.fb_return_field is not None:
+            # Settings mode: always show a select-folder prompt
+            lines.append(hint_style.render('  Navigate to target directory, then press space or enter to select'))
+            lines.append('')
+        elif (self.fb_dir / 'conversations.json').exists():
             lines.append(success_style.render('  ✓ Export folder detected — press enter or space to import'))
             lines.append('')
 
@@ -902,11 +928,16 @@ class AppModel(tea.Model):
         inner_w = w - 6   # panel border (2) + padding (2*2)
         max_label = max(10, inner_w - 5)  # 5 = len('  ▶  ')
 
+        parent = self.fb_dir.parent
         if not shown and not (self.fb_dir / 'conversations.json').exists():
             lines.append(muted_style.render('  (empty directory)'))
         for i, entry in enumerate(shown):
             idx = start + i
-            label = entry.name + ('/' if entry.is_dir() else '')
+            # Show parent as '..' rather than the full dir name
+            if parent != self.fb_dir and entry == parent:
+                label = '../'
+            else:
+                label = entry.name + ('/' if entry.is_dir() else '')
             if len(label) > max_label:
                 label = label[:max_label - 1] + '…'
             if idx == self.fb_cursor:
@@ -915,7 +946,7 @@ class AppModel(tea.Model):
                 row_style = lipgloss.Style().foreground(C_TEXT) if entry.is_dir() else muted_style
                 lines.append(row_style.render(f'     {label}'))
 
-        lines += ['', self._footer('↑↓ navigate   enter open / select   backspace up   / type path   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter open   space select current   / type path   esc back')]
         return self._panel('\n'.join(lines))
     def _view_provider_select(self) -> str:
         lines = [self._header('Select Provider'), '']
@@ -985,7 +1016,7 @@ class AppModel(tea.Model):
             s = success_style.render(rest) if prefix == 'ok' else error_style.render(rest)
             lines += ['', f'  {s}']
 
-        lines += ['', self._footer('tab next field   shift+tab prev   esc back')]
+        lines += ['', self._footer('tab next field   shift+tab prev   enter browse dir   esc back')]
         return self._panel('\n'.join(lines))
     def _view_export_settings(self) -> str:
         lines = [self._header('Export'), '']
@@ -1025,7 +1056,7 @@ class AppModel(tea.Model):
         if self.es_status:
             lines += ['', success_style.render(f'  {self.es_status}')]
 
-        lines += ['', self._footer('↑↓ navigate   enter/space toggle / save / run   esc back')]
+        lines += ['', self._footer('↑↓ navigate   enter toggle / browse dir / save / run   esc back')]
         return self._panel('\n'.join(lines))
 
     def _view_review_editor(self) -> str:
@@ -1115,11 +1146,27 @@ class AppModel(tea.Model):
         lines += ['', self._footer('↑↓ navigate   enter view   e edit tags   esc back')]
         return self._panel('\n'.join(lines))
 
+    def _open_dir_browser(self, field_key: str, return_screen: Screen, values_key: str) -> None:
+        """Open the folder browser to pick a directory for a settings field."""
+        values = self.es_values if values_key == 'es' else self.st_values
+        current_val = values.get(field_key, '').strip()
+        start_dir = Path(current_val).expanduser() if current_val else Path.home()
+        if not start_dir.is_dir():
+            start_dir = Path.home()
+        self.fb_dir = start_dir
+        self.fb_return_field = field_key
+        self.fb_return_to = return_screen
+        self.fb_return_values = values_key
+        self._fb_refresh()
+        self.screen = Screen.FOLDER_BROWSER
+
     def _start_new_import(self) -> None:
         """Navigate to FOLDER_BROWSER, landing at the parent of the last selected
         folder so the user can easily pick a different export directory."""
         if self.cf_folder != Path('.'):
             self.fb_dir = self.cf_folder.parent
+        self.fb_return_field = None
+        self.fb_return_to = Screen.MAIN
         self.screen = Screen.FOLDER_BROWSER
         self._fb_refresh()
 
@@ -1127,12 +1174,17 @@ class AppModel(tea.Model):
         """Populate fb_entries from fb_dir — directories only.
 
         Files are never shown; the app handles JSON selection internally.
+        Always prepends a '..' parent entry (except at filesystem root).
         """
         try:
             entries = sorted(self.fb_dir.iterdir(), key=lambda p: p.name.lower())
             self.fb_entries = [e for e in entries if e.is_dir() and not e.name.startswith('.')]
         except PermissionError:
             self.fb_entries = []
+        # Prepend parent directory so users can navigate up without knowing the key
+        parent = self.fb_dir.parent
+        if parent != self.fb_dir:
+            self.fb_entries.insert(0, parent)
         self.fb_cursor = 0
         self.fb_status = ''
 
@@ -1247,11 +1299,80 @@ def _to_iso(ts):
     return datetime.fromtimestamp(ts, tz=timezone.utc).isoformat()
 
 
-def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
+def _segments_to_text(content: list[dict]) -> str:
+    """Reconstruct raw GFM text from stored content segments (inverse of parse_content)."""
+    parts = []
+    for seg in content:
+        if seg['type'] == 'prose':
+            parts.append(seg['text'])
+        elif seg['type'] == 'code':
+            lang = seg.get('language') or ''
+            parts.append(f'```{lang}\n{seg["text"]}```')
+    return '\n\n'.join(parts)
+
+
+def _render_from_db_row(row: dict, user_name: str | None = None, assistant_name: str | None = None) -> str:
+    """Render GFM markdown for a branch directly from a DB row dict.
+
+    This is the DB-driven equivalent of MarkdownRenderer.render() — no .md
+    file required on disk.
+
+    Speaker labels come from the stored aliases (set at import time) when
+    available, falling back to user_name / assistant_name params, then to
+    provider-canon defaults ('User' / 'ChatGPT' / 'DeepSeek').
+    """
+    from datetime import datetime
+    title = row.get('title') or 'Untitled'
+    create_time_str = row.get('conv_create_time') or ''
+    model_slug = row.get('model_slug') or ''
+    branch_index = row.get('branch_index', 1)
+    branch_count = row.get('branch_count', 1)
+    provider = row.get('provider') or 'chatgpt'
+    messages = row.get('messages') or []
+
+    # Alias priority: stored DB value → caller param → provider canon
+    _canon_assistant = {'chatgpt': 'ChatGPT', 'deepseek': 'DeepSeek'}.get(provider, 'Assistant')
+    _user   = row.get('user_alias') or user_name or 'User'
+    _asst   = row.get('assistant_alias') or assistant_name or _canon_assistant
+
+    lines = [f'# {title}', '']
+
+    date_str = 'unknown'
+    if create_time_str:
+        try:
+            dt = datetime.fromisoformat(create_time_str)
+            date_str = dt.strftime('%Y-%m-%d')
+        except (ValueError, TypeError):
+            pass
+    parts = [date_str]
+    if model_slug:
+        parts.append(model_slug)
+    if branch_count and branch_count > 1:
+        parts.append(f'Branch {branch_index} of {branch_count}')
+    lines += [f'_{"  ·  ".join(parts)}_', '']
+
+    for msg in messages:
+        lines.append('---')
+        lines.append('')
+        role = msg.get('role', '')
+        header = f'### 👤 {_user}' if role == 'user' else f'### 🤖 {_asst}'
+        text = _segments_to_text(msg.get('content', []))
+        lines += [header, '', text, '']
+
+    lines += ['---', '']
+    return '\n'.join(lines)
+
+
+def _alternate_export_sweep(
+    db, output_dir: Path, exp_cfg, force: bool = False,
+    user_name: str | None = None, assistant_name: str | None = None,
+) -> int:
     """Generate alternate format files for every DB branch that has an md_filename.
 
-    Skips files that already exist so re-runs are fast.  Returns the number of
-    new files written.
+    Renders markdown directly from DB data — no .md file required on disk.
+    When force=True (user-triggered), always overwrites existing output files.
+    When force=False (post-import sweep), skips files that already exist.
+    Returns the number of files written.
     """
     if not (exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled):
         return 0
@@ -1260,21 +1381,17 @@ def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
         md_filename = row.get('md_filename') or ''
         if not md_filename:
             continue
-        md_path = output_dir / md_filename
-        if not md_path.exists():
-            continue
-        try:
-            content = md_path.read_text(encoding='utf-8')
-        except OSError:
-            continue
         stem = md_filename[:-3]  # strip .md
+        content = _render_from_db_row(row, user_name=user_name, assistant_name=assistant_name)
+        if not content:
+            continue
         if exp_cfg.html_github_enabled:
             try:
                 from html_github_exporter import export_html_github
                 html_dir = (Path(exp_cfg.html_github_dir).expanduser()
                             if exp_cfg.html_github_dir else output_dir / 'html-github')
                 out = html_dir / f'{stem}.html'
-                if not out.exists():
+                if force or not out.exists():
                     export_html_github(content, out)
                     count += 1
             except Exception:
@@ -1285,7 +1402,7 @@ def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
                 retro_dir = (Path(exp_cfg.html_retro_dir).expanduser()
                              if exp_cfg.html_retro_dir else output_dir / 'html-retro')
                 out = retro_dir / f'{stem}.html'
-                if not out.exists():
+                if force or not out.exists():
                     export_html_retro(content, out)
                     count += 1
             except Exception:
@@ -1296,7 +1413,7 @@ def _alternate_export_sweep(db, output_dir: Path, exp_cfg) -> int:
                 docx_dir = (Path(exp_cfg.docx_dir).expanduser()
                             if exp_cfg.docx_dir else output_dir / 'docx')
                 out = docx_dir / f'{stem}.docx'
-                if not out.exists():
+                if force or not out.exists():
                     export_docx(content, out)
                     count += 1
             except Exception:
@@ -1464,6 +1581,8 @@ def _cmd_run(folder: Path, provider: str, st_values: dict, program: Optional['te
                         model_slug=conv.model_slug,
                         branch_count=len(conv.branches),
                         branches=db_branches,
+                        user_alias=persona.user_name,
+                        assistant_alias=persona.assistant_name,
                     )
 
                 if program:

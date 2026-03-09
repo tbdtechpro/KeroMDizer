@@ -197,6 +197,8 @@ def main():
                     model_slug=conv.model_slug,
                     branch_count=len(conv.branches),
                     branches=db_branches,
+                    user_alias=persona.user_name,
+                    assistant_alias=persona.assistant_name,
                 )
 
         if not args.dry_run:

@@ -3,7 +3,7 @@ from models import Message, Branch, Conversation, PersonaConfig
 from renderer import MarkdownRenderer
 
 
-def _make_conv(branches, model='gpt-4o', create_time=1700000000.0, update_time=1700000100.0):
+def _make_conv(branches, model: str | None = 'gpt-4o', create_time=1700000000.0, update_time=1700000100.0):
     return Conversation(
         id='test-id-001',
         title='My Test Chat',
