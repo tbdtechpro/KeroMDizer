@@ -6,10 +6,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
-import bubbletea as tea
-import lipgloss
-from lipgloss import Color
-from lipgloss.themes.catppuccin import catppuccin_mocha as M
+import bubblepy as tea
+import pygloss as lipgloss
+from pygloss import Color
+from pygloss.themes.catppuccin import catppuccin_mocha as M
 from db import DatabaseManager
 
 # ── Colours ────────────────────────────────────────────────────────────────────

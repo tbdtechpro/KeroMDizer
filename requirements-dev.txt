@@ -1,6 +1,6 @@
 pytest
-git+https://github.com/tbdtechpro/bubbletea.git
-git+https://github.com/tbdtechpro/lipgloss.git
+git+https://github.com/tbdtechpro/bubblepy.git
+git+https://github.com/tbdtechpro/pygloss.git
 yake
 pygments
 python-docx

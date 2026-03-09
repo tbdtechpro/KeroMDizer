@@ -1,6 +1,6 @@
 # tests/test_tui.py
 from tui import AppModel, Screen, _ClipboardMsg, _ConvCountMsg, _ProgressMsg, _DoneMsg, _RunErrorMsg
-import bubbletea as tea
+import bubblepy as tea
 
 
 def test_screen_enum_has_required_screens():
@@ -18,7 +18,7 @@ def test_appmodel_initial_screen_is_main():
     assert m.screen == Screen.MAIN
 
 
-import lipgloss as _lipgloss  # for strip_ansi
+import pygloss as _lipgloss  # for strip_ansi
 
 
 def _strip(s: str) -> str:
