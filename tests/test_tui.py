@@ -487,14 +487,14 @@ def test_st_shift_tab_moves_to_prev_field():
 
 def test_st_tab_wraps_to_save_button():
     m = _make_st_model()
-    m.st_cursor = 6  # last toggle field (export_jsonl)
+    m.st_cursor = 7  # last field (project_conflict)
     m, _ = m.update(tea.KeyMsg(key='tab'))
-    assert m.st_cursor == 7  # Save button
+    assert m.st_cursor == 8  # Save button
 
 
 def test_st_tab_wraps_from_save_button_to_first_field():
     m = _make_st_model()
-    m.st_cursor = 7  # Save button
+    m.st_cursor = 8  # Save button
     m, _ = m.update(tea.KeyMsg(key='tab'))
     assert m.st_cursor == 0
 
@@ -503,7 +503,7 @@ def test_st_shift_tab_wraps_from_first_field_to_save_button():
     m = _make_st_model()
     m.st_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='shift+tab'))
-    assert m.st_cursor == 7
+    assert m.st_cursor == 8
 
 
 def test_st_typing_updates_focused_field():
@@ -528,7 +528,7 @@ def test_st_save_button_enter_writes_toml(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setattr('tui._save_settings', lambda v: saved.update(v))
     m = _make_st_model()
-    m.st_cursor = 7  # Save button
+    m.st_cursor = 8  # Save button
     m.st_values['user_name'] = 'Matt'
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert saved.get('user_name') == 'Matt'
@@ -676,10 +676,11 @@ def test_settings_branch_toggle_cycles_on_enter():
     assert model.st_values['import_branches'] != initial
 
 
-def test_settings_tab_wraps_at_8():
+def test_settings_tab_wraps_at_9():
+    # 8 fields + 1 Save button = 9 positions (0–8); 9 tabs wraps back to 0
     model = AppModel()
     model.screen = Screen.SETTINGS
-    for _ in range(8):
+    for _ in range(9):
         model, _ = model.update(tea.KeyMsg(key='tab'))
     assert model.st_cursor == 0
 
@@ -694,6 +695,35 @@ def test_settings_save_includes_branch_config(tmp_path, monkeypatch):
     assert model.st_values['import_branches'] in ('main', 'all')
     assert model.st_values['export_markdown'] in ('main', 'all')
     assert model.st_values['export_jsonl'] in ('main', 'all')
+
+
+def test_settings_project_conflict_present():
+    model = AppModel()
+    assert 'project_conflict' in model.st_values
+    assert model.st_values['project_conflict'] in ('preserve', 'overwrite', 'flag')
+
+
+def test_settings_project_conflict_cycles_preserve_overwrite_flag():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    # Navigate to project_conflict field (index 7)
+    for _ in range(7):
+        model, _ = model.update(tea.KeyMsg(key='tab'))
+    assert model.st_cursor == 7
+    model.st_values['project_conflict'] = 'preserve'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['project_conflict'] == 'overwrite'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['project_conflict'] == 'flag'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['project_conflict'] == 'preserve'
+
+
+def test_settings_project_conflict_in_view():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    view = model.view()
+    assert 'Project conflict' in view
 
 
 # ── REVIEW editor ──────────────────────────────────────────────────────────────

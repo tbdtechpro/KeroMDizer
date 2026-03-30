@@ -97,6 +97,7 @@ def _load_settings() -> dict[str, str]:
             pass
     providers = data.get('providers', {})
     branches = data.get('branches', {})
+    sync = data.get('sync', {})
     return {
         'output_dir':        data.get('output', {}).get('dir', './output'),
         'user_name':         data.get('user', {}).get('name', ''),
@@ -105,6 +106,7 @@ def _load_settings() -> dict[str, str]:
         'import_branches':   branches.get('import', 'all'),
         'export_markdown':   branches.get('export_markdown', 'all'),
         'export_jsonl':      branches.get('export_jsonl', 'all'),
+        'project_conflict':  sync.get('project_conflict', 'preserve'),
     }
 
 
@@ -150,6 +152,8 @@ def _save_settings(values: dict[str, str]) -> None:
         branches_data['export_jsonl'] = values['export_jsonl']
     if branches_data:
         data['branches'] = branches_data
+    if values.get('project_conflict'):
+        data['sync'] = {'project_conflict': values['project_conflict']}
     toml_path.write_text('\n'.join(_toml_serialize(data)) + '\n', encoding='utf-8')
 
 
@@ -297,6 +301,7 @@ class AppModel(tea.Model):
         self.st_fields: list[str] = [
             'output_dir', 'user_name', 'chatgpt_assistant', 'deepseek_assistant',
             'import_branches', 'export_markdown', 'export_jsonl',
+            'project_conflict',
         ]
         self.st_labels: dict[str, str] = {
             'output_dir':         'Output directory',
@@ -306,8 +311,10 @@ class AppModel(tea.Model):
             'import_branches':    'Import branches',
             'export_markdown':    'Markdown export branches',
             'export_jsonl':       'JSONL export branches',
+            'project_conflict':   'Project conflict',
         }
         self.st_toggle_fields: set[str] = {'import_branches', 'export_markdown', 'export_jsonl'}
+        self.st_cycle3_fields: set[str] = {'project_conflict'}  # 3-value: preserve→overwrite→flag
         self.st_values: dict[str, str] = st_defaults
         self.st_cursor: int = 0
         self.st_status: str = ''
@@ -574,7 +581,13 @@ class AppModel(tea.Model):
                 self.st_status = f'error:{e}'
         elif self.st_cursor < n_fields:
             field_key = self.st_fields[self.st_cursor]
-            if field_key in self.st_toggle_fields:
+            if field_key in self.st_cycle3_fields:
+                if key in ('enter', ' '):
+                    cycle = ('preserve', 'overwrite', 'flag')
+                    current = self.st_values.get(field_key, 'preserve')
+                    idx = cycle.index(current) if current in cycle else 0
+                    self.st_values[field_key] = cycle[(idx + 1) % 3]
+            elif field_key in self.st_toggle_fields:
                 if key in ('enter', ' '):
                     current = self.st_values.get(field_key, 'all')
                     self.st_values[field_key] = 'main' if current == 'all' else 'all'
@@ -998,7 +1011,7 @@ class AppModel(tea.Model):
             value = self.st_values.get(fk, '')
             focused = (i == self.st_cursor)
             label_s = sel_style.render(label) if focused else muted_style.render(label)
-            if fk in self.st_toggle_fields:
+            if fk in self.st_toggle_fields or fk in self.st_cycle3_fields:
                 val_display = sel_style.render(f'[ {value} ]') if focused else muted_style.render(f'  {value}  ')
             else:
                 val_display = f'{value}\u2588' if focused else value or muted_style.render('(default)')
