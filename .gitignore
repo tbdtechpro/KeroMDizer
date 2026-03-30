@@ -49,3 +49,6 @@ manifest.json
 # Entire export folders — the hex-named directory pattern ChatGPT uses
 # (add new export folder names here if you copy them into this directory)
 0bab8e77c5a63f18a71fbe7235e764bf/
+
+# Personal reference docs containing private project/account details
+docs/chatgpt-projects-reference.md
