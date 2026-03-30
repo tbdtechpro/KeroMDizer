@@ -11,6 +11,8 @@ import pygloss as lipgloss
 from pygloss import Color
 from pygloss.themes.catppuccin import catppuccin_mocha as M
 from db import DatabaseManager
+import project_fetcher
+from config import load_chatgpt_projects as _load_chatgpt_projects
 
 # ── Colours ────────────────────────────────────────────────────────────────────
 C_TEXT    = M.text
@@ -49,6 +51,7 @@ class Screen(enum.Enum):
     RUN             = 'run'
     SETTINGS        = 'settings'
     REVIEW          = 'review'
+    PROJECTS        = 'projects'
     SEARCH          = 'search'
     VIEWER          = 'viewer'
     EXPORT_SETTINGS = 'export_settings'
@@ -81,6 +84,25 @@ class _RunErrorMsg(tea.Msg):
 @dataclass
 class _ExportSweepDoneMsg(tea.Msg):
     count: int
+
+@dataclass
+class _ProjectProgressMsg(tea.Msg):
+    project_name: str
+    count: int
+
+@dataclass
+class _ProjectDoneMsg(tea.Msg):
+    applied: int
+    conflicts: int
+
+@dataclass
+class _ProjectErrorMsg(tea.Msg):
+    error: str
+
+@dataclass
+class _TokenSavedMsg(tea.Msg):
+    success: bool
+    message: str
 
 
 # ── Settings helpers ───────────────────────────────────────────────────────────
@@ -235,7 +257,7 @@ class AppModel(tea.Model):
 
         # MAIN
         self.menu_cursor: int = 0
-        self.menu_items: list[str] = ['Import', 'Settings', 'Export', 'Review', 'Search']
+        self.menu_items: list[str] = ['Import', 'Settings', 'Export', 'Review', 'Projects', 'Search']
 
         # FOLDER_BROWSER
         self.fb_dir: Path = Path.home()
@@ -340,6 +362,18 @@ class AppModel(tea.Model):
         self.es_status: str = ''
         self.es_running: bool = False
 
+        # PROJECTS
+        _tok = project_fetcher.load_token()
+        self.pj_token_found: bool = _tok is not None
+        self.pj_projects_count: int = len(_load_chatgpt_projects())
+        self.pj_paste_mode: bool = False
+        self.pj_paste_input: str = ''
+        self.pj_syncing: bool = False
+        self.pj_status: str = ''
+        self.pj_progress: str = ''
+        self.pj_applied: int = 0
+        self.pj_conflicts: int = 0
+
     def init(self) -> Optional[tea.Cmd]:
         return tea.window_size()
 
@@ -360,6 +394,7 @@ class AppModel(tea.Model):
             Screen.SEARCH:          self._key_search,
             Screen.VIEWER:          self._key_viewer,
             Screen.EXPORT_SETTINGS: self._key_export_settings,
+            Screen.PROJECTS:        self._key_projects,
         }
         handler = dispatch.get(self.screen)
         if handler:
@@ -378,6 +413,7 @@ class AppModel(tea.Model):
             Screen.SEARCH:          self._view_search,
             Screen.VIEWER:          self._view_viewer,
             Screen.EXPORT_SETTINGS: self._view_export_settings,
+            Screen.PROJECTS:        self._view_projects,
         }
         return views[self.screen]() + '\n'
 
@@ -407,7 +443,7 @@ class AppModel(tea.Model):
         elif msg.key == 'q':
             return self, tea.quit_cmd
         elif msg.key == 'enter':
-            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.EXPORT_SETTINGS, Screen.REVIEW, Screen.SEARCH]
+            dest = [Screen.FOLDER_BROWSER, Screen.SETTINGS, Screen.EXPORT_SETTINGS, Screen.REVIEW, Screen.PROJECTS, Screen.SEARCH]
             self.screen = dest[self.menu_cursor]
             if self.screen == Screen.FOLDER_BROWSER:
                 self._start_new_import()
@@ -726,6 +762,82 @@ class AppModel(tea.Model):
             self._open_viewer(self.rv_rows[self.rv_cursor], return_screen=Screen.REVIEW)
         elif key == 'e' and self.rv_rows:
             self._open_editor()
+        return self, None
+
+    def _key_projects(self, msg) -> tuple['AppModel', None]:
+        # Handle async messages from worker threads
+        if isinstance(msg, _ProjectProgressMsg):
+            self.pj_progress = f"Fetching '{msg.project_name}'… {msg.count} conversations"
+            return self, None
+        if isinstance(msg, _ProjectDoneMsg):
+            self.pj_syncing = False
+            self.pj_applied = msg.applied
+            self.pj_conflicts = msg.conflicts
+            self.pj_status = f'ok:Applied: {msg.applied}  Conflicts: {msg.conflicts}'
+            return self, None
+        if isinstance(msg, _ProjectErrorMsg):
+            self.pj_syncing = False
+            self.pj_status = f'error:{msg.error}'
+            return self, None
+        if isinstance(msg, _TokenSavedMsg):
+            if msg.success:
+                self.pj_token_found = True
+                self.pj_status = 'ok:Token saved'
+            else:
+                self.pj_status = f'error:{msg.message}'
+            return self, None
+
+        if not isinstance(msg, tea.KeyMsg):
+            return self, None
+        key = msg.key
+
+        if self.pj_paste_mode:
+            if key == 'escape':
+                self.pj_paste_mode = False
+                self.pj_paste_input = ''
+            elif key == 'enter' and self.pj_paste_input:
+                from retrieve_token import parse_token_string, save_token
+                try:
+                    token = parse_token_string(self.pj_paste_input)
+                    save_token(token)
+                    self.pj_token_found = True
+                    self.pj_paste_mode = False
+                    self.pj_paste_input = ''
+                    self.pj_status = 'ok:Token saved'
+                except ValueError as e:
+                    self.pj_status = f'error:{e}'
+            elif key == 'backspace':
+                self.pj_paste_input = self.pj_paste_input[:-1]
+            elif key == 'ctrl+u':
+                self.pj_paste_input = ''
+            elif len(key) == 1:
+                self.pj_paste_input += key
+            return self, None
+
+        if key in ('escape', 'q'):
+            self.screen = Screen.MAIN
+        elif key == 'b' and not self.pj_syncing:
+            self.pj_status = 'ok:Extracting token from browser…'
+            _cmd_browser_token(self._program)
+        elif key == 'v' and not self.pj_syncing:
+            self.pj_paste_mode = True
+            self.pj_paste_input = ''
+            self.pj_status = ''
+        elif key in ('enter', 'r') and not self.pj_syncing and self.pj_token_found:
+            from config import load_chatgpt_projects
+            token = project_fetcher.load_token()
+            projects = load_chatgpt_projects()
+            if not token:
+                self.pj_status = 'error:No token found — use [B] or [V] first'
+            elif not projects:
+                self.pj_status = 'error:No projects configured in ~/.keromdizer.toml'
+            else:
+                conflict_mode = self.st_values.get('project_conflict', 'preserve')
+                self.pj_syncing = True
+                self.pj_progress = 'Starting sync…'
+                self.pj_status = ''
+                _cmd_sync_projects(token, projects, conflict_mode, self._db, self._program)
+
         return self, None
 
     def _key_search(self, msg):
@@ -1072,6 +1184,53 @@ class AppModel(tea.Model):
         lines += ['', self._footer('↑↓ navigate   enter toggle / browse dir / save / run   esc back')]
         return self._panel('\n'.join(lines))
 
+    def _view_projects(self) -> str:
+        lines = [self._header('Projects'), '']
+
+        # Token status row
+        if self.pj_token_found:
+            tok_s = success_style.render('● Found')
+        else:
+            tok_s = error_style.render('○ Missing')
+        lines.append(f'  Token status:  {tok_s}')
+        lines.append(muted_style.render('                              [B] Sync from browser'))
+        lines.append(muted_style.render('                              [V] Paste token'))
+        lines.append('')
+
+        # Projects count
+        if self.pj_projects_count:
+            lines.append(muted_style.render(f'  Projects configured: {self.pj_projects_count}  (from ~/.keromdizer.toml)'))
+        else:
+            lines.append(error_style.render('  No projects configured — see docs/chatgpt-projects-guide.md'))
+        lines.append('')
+
+        # Paste mode input
+        if self.pj_paste_mode:
+            lines.append(muted_style.render('  Paste token (enter confirm, esc cancel):'))
+            display = self.pj_paste_input or ''
+            lines.append(f'  {display}\u2588')
+            lines.append('')
+
+        # Sync progress / status
+        if self.pj_syncing:
+            lines.append(muted_style.render(f'  {self.pj_progress}'))
+        elif self.pj_status:
+            prefix, _, rest = self.pj_status.partition(':')
+            s = success_style.render(rest) if prefix == 'ok' else error_style.render(rest)
+            lines.append(f'  {s}')
+        lines.append('')
+
+        # Action row
+        if self.pj_token_found and self.pj_projects_count and not self.pj_syncing:
+            lines.append(sel_style.render('  [Enter / R]  Run sync now'))
+        elif self.pj_syncing:
+            lines.append(muted_style.render('  Syncing…'))
+        else:
+            lines.append(muted_style.render('  [Enter / R]  Run sync now  (retrieve token first)'))
+
+        lines += ['', self._footer('[B] browser token   [V] paste token   Enter sync   Esc back')]
+        return self._panel('\n'.join(lines))
+
     def _view_review_editor(self) -> str:
         row = self.rv_rows[self.rv_cursor]
         title = (row.get('title') or 'Untitled')[:40]
@@ -1300,6 +1459,53 @@ def _cmd_scan(folder: Path, provider: str, program: Optional['tea.Program']) -> 
         except Exception:
             if program:
                 program.send(_ConvCountMsg(count=0))
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _cmd_sync_projects(
+    token: str,
+    projects: dict[str, str],
+    conflict_mode: str,
+    db: 'DatabaseManager',
+    program,
+) -> None:
+    """Fetch project→conversation map from ChatGPT API and update DB."""
+    def _run() -> None:
+        from project_fetcher import fetch_project_map
+
+        def progress_cb(project_name: str, count: int) -> None:
+            if program:
+                program.send(_ProjectProgressMsg(project_name=project_name, count=count))
+
+        try:
+            mapping = fetch_project_map(token, projects, progress_cb)
+            applied, conflicts = db.bulk_update_projects(mapping, conflict_mode)
+            if program:
+                program.send(_ProjectDoneMsg(applied=applied, conflicts=conflicts))
+        except Exception as exc:
+            if program:
+                program.send(_ProjectErrorMsg(error=str(exc)))
+
+    threading.Thread(target=_run, daemon=True).start()
+
+
+def _cmd_browser_token(program) -> None:
+    """Auto-extract ChatGPT token from browser in a background thread."""
+    def _run() -> None:
+        from retrieve_token import get_chatgpt_token_from_browser, save_token
+        try:
+            token = get_chatgpt_token_from_browser()
+            if token:
+                save_token(token)
+                if program:
+                    program.send(_TokenSavedMsg(success=True, message='Token saved'))
+            else:
+                if program:
+                    program.send(_TokenSavedMsg(success=False, message='No token found in browser — try [V] paste'))
+        except Exception as exc:
+            if program:
+                program.send(_TokenSavedMsg(success=False, message=str(exc)))
+
     threading.Thread(target=_run, daemon=True).start()
 
 

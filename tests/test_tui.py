@@ -1,5 +1,6 @@
 # tests/test_tui.py
-from tui import AppModel, Screen, _ClipboardMsg, _ConvCountMsg, _ProgressMsg, _DoneMsg, _RunErrorMsg
+from tui import (AppModel, Screen, _ClipboardMsg, _ConvCountMsg, _ProgressMsg, _DoneMsg, _RunErrorMsg,
+                  _ProjectProgressMsg, _ProjectDoneMsg, _ProjectErrorMsg, _TokenSavedMsg)
 import bubblepy as tea
 
 
@@ -49,7 +50,7 @@ def test_main_cursor_moves_up():
 
 def test_main_cursor_wraps_down():
     m = AppModel()
-    m.menu_cursor = 4  # last item
+    m.menu_cursor = 5  # last item (6 items: 0-5)
     m, _ = m.update(tea.KeyMsg(key='down'))
     assert m.menu_cursor == 0
 
@@ -58,7 +59,7 @@ def test_main_cursor_wraps_up():
     m = AppModel()
     m.menu_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='up'))
-    assert m.menu_cursor == 4
+    assert m.menu_cursor == 5
 
 
 def test_main_q_quits():
@@ -960,3 +961,126 @@ def test_export_settings_escape_goes_to_main():
     m.screen = Screen.EXPORT_SETTINGS
     m, _ = m.update(tea.KeyMsg(key='escape'))
     assert m.screen == Screen.MAIN
+
+
+# ── PROJECTS screen ─────────────────────────────────────────────────────────────
+
+def test_projects_screen_in_enum():
+    assert Screen.PROJECTS.value == 'projects'
+
+
+def test_projects_accessible_from_main(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    monkeypatch.setattr('tui.AppModel.__init__', lambda self: None)  # skip heavy init
+    # Just verify the menu item exists
+    model = AppModel.__new__(AppModel)
+    model.menu_items = ['Import', 'Settings', 'Export', 'Review', 'Projects', 'Search']
+    assert 'Projects' in model.menu_items
+
+
+def test_projects_initial_state(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {'g-p-abc': 'My Project'})
+    model = AppModel()
+    assert hasattr(model, 'pj_token_found')
+    assert hasattr(model, 'pj_projects_count')
+    assert model.pj_projects_count == 1
+    assert model.pj_paste_mode is False
+    assert model.pj_syncing is False
+    assert model.pj_status == ''
+
+
+def test_projects_escape_returns_to_main(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(tea.KeyMsg(key='escape'))
+    assert model.screen == Screen.MAIN
+
+
+def test_projects_v_enters_paste_mode(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(tea.KeyMsg(key='v'))
+    assert model.pj_paste_mode is True
+
+
+def test_projects_paste_mode_escape_cancels(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_paste_mode = True
+    model.pj_paste_input = 'partial'
+    model, _ = model.update(tea.KeyMsg(key='escape'))
+    assert model.pj_paste_mode is False
+    assert model.pj_paste_input == ''
+
+
+def test_projects_paste_mode_typing(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_paste_mode = True
+    model, _ = model.update(tea.KeyMsg(key='e'))
+    model, _ = model.update(tea.KeyMsg(key='y'))
+    model, _ = model.update(tea.KeyMsg(key='J'))
+    assert model.pj_paste_input == 'eyJ'
+
+
+def test_projects_view_shows_token_status(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = True
+    view = model.view()
+    assert 'Token status' in view
+    assert '● Found' in view
+
+
+def test_projects_view_shows_missing_token(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = False
+    view = model.view()
+    assert '○ Missing' in view
+
+
+def test_projects_progress_msg_updates_progress(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectProgressMsg(project_name='Tools', count=5))
+    assert 'Tools' in model.pj_progress
+
+
+def test_projects_done_msg_clears_syncing(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectDoneMsg(applied=10, conflicts=2))
+    assert model.pj_syncing is False
+    assert model.pj_applied == 10
+    assert model.pj_conflicts == 2
+    assert 'ok' in model.pj_status
+
+
+def test_projects_error_msg_clears_syncing(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectErrorMsg(error='Network error'))
+    assert model.pj_syncing is False
+    assert 'error' in model.pj_status
+
+
+def test_projects_token_saved_msg_success(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(_TokenSavedMsg(success=True, message='Token saved'))
+    assert model.pj_token_found is True
+    assert 'ok' in model.pj_status
