@@ -1,7 +1,7 @@
 import tomllib
 from pathlib import Path
 
-from models import PersonaConfig, BranchConfig, ExportConfig
+from models import PersonaConfig, BranchConfig, ExportConfig, SyncConfig
 
 CONFIG_PATH = Path.home() / '.keromdizer.toml'
 
@@ -78,3 +78,56 @@ def load_export_config() -> ExportConfig:
         docx_enabled=e.get('docx', 'no') == 'yes',
         docx_dir=e.get('docx_dir', ''),
     )
+
+
+_VALID_CONFLICT_MODES = ('preserve', 'overwrite', 'flag')
+
+
+def load_chatgpt_projects() -> dict[str, str]:
+    """Read [chatgpt.projects] from ~/.keromdizer.toml.
+
+    Returns {gizmo_id: project_name}. Empty dict if section absent.
+    """
+    try:
+        data = _load_toml()
+    except ValueError:
+        return {}
+    return dict(data.get('chatgpt', {}).get('projects', {}))
+
+
+def load_sync_config() -> SyncConfig:
+    """Read [sync] section from ~/.keromdizer.toml. Defaults: project_conflict='preserve'."""
+    try:
+        data = _load_toml()
+    except ValueError:
+        return SyncConfig()
+    raw = data.get('sync', {}).get('project_conflict', 'preserve')
+    if raw not in _VALID_CONFLICT_MODES:
+        raw = 'preserve'
+    return SyncConfig(project_conflict=raw)
+
+
+def _serialize_toml(data: dict, prefix: str = '') -> list[str]:
+    """Minimal recursive TOML serializer for string-valued nested dicts."""
+    lines: list[str] = []
+    flat = {k: v for k, v in data.items() if not isinstance(v, dict)}
+    nested = {k: v for k, v in data.items() if isinstance(v, dict)}
+    if flat:
+        if prefix:
+            lines.append(f'[{prefix}]')
+        for k, v in flat.items():
+            lines.append(f'{k} = "{v}"')
+    for k, v in nested.items():
+        sub = f'{prefix}.{k}' if prefix else k
+        lines.extend(_serialize_toml(v, sub))
+    return lines
+
+
+def save_sync_config(cfg: SyncConfig) -> None:
+    """Write [sync] section to ~/.keromdizer.toml, preserving all other sections."""
+    try:
+        data = _load_toml()
+    except ValueError:
+        data = {}
+    data.setdefault('sync', {})['project_conflict'] = cfg.project_conflict
+    CONFIG_PATH.write_text('\n'.join(_serialize_toml(data)) + '\n', encoding='utf-8')
