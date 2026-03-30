@@ -4,3 +4,5 @@ git+https://github.com/tbdtechpro/pygloss.git
 yake
 pygments
 python-docx
+requests
+browser_cookie3

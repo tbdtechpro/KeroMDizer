@@ -49,3 +49,8 @@ class ExportConfig:
     html_retro_dir: str = ''
     docx_enabled: bool = False
     docx_dir: str = ''
+
+
+@dataclass
+class SyncConfig:
+    project_conflict: str = 'preserve'  # 'preserve' | 'overwrite' | 'flag'

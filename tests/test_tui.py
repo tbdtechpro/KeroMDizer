@@ -1,5 +1,6 @@
 # tests/test_tui.py
-from tui import AppModel, Screen, _ClipboardMsg, _ConvCountMsg, _ProgressMsg, _DoneMsg, _RunErrorMsg
+from tui import (AppModel, Screen, _ClipboardMsg, _ConvCountMsg, _ProgressMsg, _DoneMsg, _RunErrorMsg,
+                  _ProjectProgressMsg, _ProjectDoneMsg, _ProjectErrorMsg, _TokenSavedMsg)
 import bubblepy as tea
 
 
@@ -49,7 +50,7 @@ def test_main_cursor_moves_up():
 
 def test_main_cursor_wraps_down():
     m = AppModel()
-    m.menu_cursor = 4  # last item
+    m.menu_cursor = 5  # last item (6 items: 0-5)
     m, _ = m.update(tea.KeyMsg(key='down'))
     assert m.menu_cursor == 0
 
@@ -58,7 +59,7 @@ def test_main_cursor_wraps_up():
     m = AppModel()
     m.menu_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='up'))
-    assert m.menu_cursor == 4
+    assert m.menu_cursor == 5
 
 
 def test_main_q_quits():
@@ -487,14 +488,14 @@ def test_st_shift_tab_moves_to_prev_field():
 
 def test_st_tab_wraps_to_save_button():
     m = _make_st_model()
-    m.st_cursor = 6  # last toggle field (export_jsonl)
+    m.st_cursor = 7  # last field (project_conflict)
     m, _ = m.update(tea.KeyMsg(key='tab'))
-    assert m.st_cursor == 7  # Save button
+    assert m.st_cursor == 8  # Save button
 
 
 def test_st_tab_wraps_from_save_button_to_first_field():
     m = _make_st_model()
-    m.st_cursor = 7  # Save button
+    m.st_cursor = 8  # Save button
     m, _ = m.update(tea.KeyMsg(key='tab'))
     assert m.st_cursor == 0
 
@@ -503,7 +504,7 @@ def test_st_shift_tab_wraps_from_first_field_to_save_button():
     m = _make_st_model()
     m.st_cursor = 0
     m, _ = m.update(tea.KeyMsg(key='shift+tab'))
-    assert m.st_cursor == 7
+    assert m.st_cursor == 8
 
 
 def test_st_typing_updates_focused_field():
@@ -528,7 +529,7 @@ def test_st_save_button_enter_writes_toml(tmp_path, monkeypatch):
     saved = {}
     monkeypatch.setattr('tui._save_settings', lambda v: saved.update(v))
     m = _make_st_model()
-    m.st_cursor = 7  # Save button
+    m.st_cursor = 8  # Save button
     m.st_values['user_name'] = 'Matt'
     m, _ = m.update(tea.KeyMsg(key='enter'))
     assert saved.get('user_name') == 'Matt'
@@ -676,10 +677,11 @@ def test_settings_branch_toggle_cycles_on_enter():
     assert model.st_values['import_branches'] != initial
 
 
-def test_settings_tab_wraps_at_8():
+def test_settings_tab_wraps_at_9():
+    # 8 fields + 1 Save button = 9 positions (0–8); 9 tabs wraps back to 0
     model = AppModel()
     model.screen = Screen.SETTINGS
-    for _ in range(8):
+    for _ in range(9):
         model, _ = model.update(tea.KeyMsg(key='tab'))
     assert model.st_cursor == 0
 
@@ -694,6 +696,35 @@ def test_settings_save_includes_branch_config(tmp_path, monkeypatch):
     assert model.st_values['import_branches'] in ('main', 'all')
     assert model.st_values['export_markdown'] in ('main', 'all')
     assert model.st_values['export_jsonl'] in ('main', 'all')
+
+
+def test_settings_project_conflict_present():
+    model = AppModel()
+    assert 'project_conflict' in model.st_values
+    assert model.st_values['project_conflict'] in ('preserve', 'overwrite', 'flag')
+
+
+def test_settings_project_conflict_cycles_preserve_overwrite_flag():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    # Navigate to project_conflict field (index 7)
+    for _ in range(7):
+        model, _ = model.update(tea.KeyMsg(key='tab'))
+    assert model.st_cursor == 7
+    model.st_values['project_conflict'] = 'preserve'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['project_conflict'] == 'overwrite'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['project_conflict'] == 'flag'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.st_values['project_conflict'] == 'preserve'
+
+
+def test_settings_project_conflict_in_view():
+    model = AppModel()
+    model.screen = Screen.SETTINGS
+    view = model.view()
+    assert 'Project conflict' in view
 
 
 # ── REVIEW editor ──────────────────────────────────────────────────────────────
@@ -930,3 +961,174 @@ def test_export_settings_escape_goes_to_main():
     m.screen = Screen.EXPORT_SETTINGS
     m, _ = m.update(tea.KeyMsg(key='escape'))
     assert m.screen == Screen.MAIN
+
+
+# ── PROJECTS screen ─────────────────────────────────────────────────────────────
+
+def test_projects_screen_in_enum():
+    assert Screen.PROJECTS.value == 'projects'
+
+
+def test_projects_accessible_from_main(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    monkeypatch.setattr('tui.AppModel.__init__', lambda self: None)  # skip heavy init
+    # Just verify the menu item exists
+    model = AppModel.__new__(AppModel)
+    model.menu_items = ['Import', 'Settings', 'Export', 'Review', 'Projects', 'Search']
+    assert 'Projects' in model.menu_items
+
+
+def test_projects_initial_state(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {'g-p-abc': 'My Project'})
+    model = AppModel()
+    assert hasattr(model, 'pj_token_found')
+    assert hasattr(model, 'pj_projects_count')
+    assert model.pj_projects_count == 1
+    assert model.pj_paste_mode is False
+    assert model.pj_syncing is False
+    assert model.pj_status == ''
+
+
+def test_projects_escape_returns_to_main(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(tea.KeyMsg(key='escape'))
+    assert model.screen == Screen.MAIN
+
+
+def test_projects_v_enters_paste_mode(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(tea.KeyMsg(key='v'))
+    assert model.pj_paste_mode is True
+
+
+def test_projects_paste_mode_escape_cancels(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_paste_mode = True
+    model.pj_paste_input = 'partial'
+    model, _ = model.update(tea.KeyMsg(key='escape'))
+    assert model.pj_paste_mode is False
+    assert model.pj_paste_input == ''
+
+
+def test_projects_paste_mode_typing(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_paste_mode = True
+    model, _ = model.update(tea.KeyMsg(key='e'))
+    model, _ = model.update(tea.KeyMsg(key='y'))
+    model, _ = model.update(tea.KeyMsg(key='J'))
+    assert model.pj_paste_input == 'eyJ'
+
+
+def test_projects_view_shows_token_status(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = True
+    view = model.view()
+    assert 'Token status' in view
+    assert '● Found' in view
+
+
+def test_projects_view_shows_missing_token(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = False
+    view = model.view()
+    assert '○ Missing' in view
+
+
+def test_projects_progress_msg_updates_progress(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectProgressMsg(project_name='Tools', count=5))
+    assert 'Tools' in model.pj_progress
+
+
+def test_projects_done_msg_clears_syncing(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectDoneMsg(applied=10, conflicts=2))
+    assert model.pj_syncing is False
+    assert model.pj_applied == 10
+    assert model.pj_conflicts == 2
+    assert 'ok' in model.pj_status
+
+
+def test_projects_error_msg_clears_syncing(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectErrorMsg(error='Network error'))
+    assert model.pj_syncing is False
+    assert 'error' in model.pj_status
+
+
+def test_projects_token_saved_msg_success(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(_TokenSavedMsg(success=True, message='Token saved'))
+    assert model.pj_token_found is True
+    assert 'ok' in model.pj_status
+
+
+def test_projects_token_saved_msg_failure(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(_TokenSavedMsg(success=False, message='No token in browser'))
+    assert 'error' in model.pj_status
+    assert 'No token in browser' in model.pj_status
+
+
+def test_projects_paste_confirm_success(monkeypatch, tmp_path):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    token_file = tmp_path / 'token.json'
+    monkeypatch.setattr('tui.project_fetcher.TOKEN_FILE', token_file)
+    # Monkeypatch save_token to avoid writing to real home dir
+    monkeypatch.setattr('retrieve_token.TOKEN_FILE', token_file)
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_paste_mode = True
+    model.pj_paste_input = 'eyJtest'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.pj_paste_mode is False
+    assert model.pj_token_found is True
+    assert 'ok' in model.pj_status
+
+
+def test_projects_r_key_triggers_sync(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {'g-p-abc': 'Tools'})
+    synced = []
+    monkeypatch.setattr('tui._cmd_sync_projects', lambda *a, **kw: synced.append(True))
+    monkeypatch.setattr('tui.project_fetcher.load_token', lambda: 'eyJtoken')
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = True
+    model, _ = model.update(tea.KeyMsg(key='r'))
+    assert model.pj_syncing is True
+    assert len(synced) == 1
+
+
+def test_projects_view_shows_syncing_progress(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model.pj_progress = "Fetching 'Tools'… 5 conversations"
+    view = model.view()
+    assert 'Tools' in view

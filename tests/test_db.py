@@ -528,3 +528,97 @@ def test_backfill_skips_already_set(tmp_path):
     row = db.get_branch('conv-skip__branch_1')
     assert row is not None
     assert row['md_filename'] == 'original.md'
+
+
+# ── bulk_update_projects ──────────────────────────────────────────────────────
+
+def _seed_conv(db, conv_id: str, project: str | None = None, branch_count: int = 1):
+    """Insert a minimal conversation with one or more branches into db."""
+    branches = []
+    for i in range(1, branch_count + 1):
+        branches.append({
+            'branch_id': f'{conv_id}__branch_{i}',
+            'branch_index': i,
+            'is_main_branch': i == 1,
+            'messages': [],
+            'inferred_tags': [],
+            'inferred_syntax': [],
+        })
+    db.upsert_conversation(
+        conversation_id=conv_id,
+        provider='chatgpt',
+        title=f'Conv {conv_id}',
+        create_time='2026-01-01T00:00:00+00:00',
+        update_time='2026-01-01T00:00:00+00:00',
+        model_slug='gpt-4o',
+        branch_count=branch_count,
+        branches=branches,
+    )
+    if project is not None:
+        for b in branches:
+            db.update_branch_tags(b['branch_id'], [], project, None, [])
+
+
+def test_bulk_update_preserve_fills_null(db):
+    _seed_conv(db, 'conv-a')
+    applied, conflicts = db.bulk_update_projects({'conv-a': 'Tools'}, 'preserve')
+    assert applied == 1
+    assert conflicts == 0
+    row = db.get_branch('conv-a__branch_1')
+    assert row['project'] == 'Tools'
+
+
+def test_bulk_update_preserve_skips_existing(db):
+    _seed_conv(db, 'conv-b', project='Manual')
+    applied, conflicts = db.bulk_update_projects({'conv-b': 'Tools'}, 'preserve')
+    assert applied == 0
+    assert conflicts == 0
+    row = db.get_branch('conv-b__branch_1')
+    assert row['project'] == 'Manual'
+
+
+def test_bulk_update_overwrite_replaces_existing(db):
+    _seed_conv(db, 'conv-c', project='Manual')
+    applied, conflicts = db.bulk_update_projects({'conv-c': 'Tools'}, 'overwrite')
+    assert applied == 1
+    assert conflicts == 1
+    row = db.get_branch('conv-c__branch_1')
+    assert row['project'] == 'Tools'
+
+
+def test_bulk_update_overwrite_fills_null(db):
+    _seed_conv(db, 'conv-d')
+    applied, conflicts = db.bulk_update_projects({'conv-d': 'Scripts'}, 'overwrite')
+    assert applied == 1
+    assert conflicts == 0
+
+
+def test_bulk_update_flag_same_result_as_overwrite(db):
+    _seed_conv(db, 'conv-e', project='Manual')
+    applied, conflicts = db.bulk_update_projects({'conv-e': 'Tools'}, 'flag')
+    assert applied == 1
+    assert conflicts == 1
+    row = db.get_branch('conv-e__branch_1')
+    assert row['project'] == 'Tools'
+
+
+def test_bulk_update_applies_to_all_branches(db):
+    _seed_conv(db, 'conv-f', branch_count=3)
+    applied, conflicts = db.bulk_update_projects({'conv-f': 'Day Job'}, 'preserve')
+    assert applied == 3
+    assert conflicts == 0
+    for i in range(1, 4):
+        row = db.get_branch(f'conv-f__branch_{i}')
+        assert row['project'] == 'Day Job'
+
+
+def test_bulk_update_ignores_unknown_conversation(db):
+    applied, conflicts = db.bulk_update_projects({'conv-zzz': 'Random'}, 'preserve')
+    assert applied == 0
+    assert conflicts == 0
+
+
+def test_bulk_update_empty_mapping(db):
+    applied, conflicts = db.bulk_update_projects({}, 'preserve')
+    assert applied == 0
+    assert conflicts == 0
