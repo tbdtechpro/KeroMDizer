@@ -223,6 +223,49 @@ class DatabaseManager:
         )
         self._conn.commit()
 
+    def bulk_update_projects(
+        self,
+        mapping: dict[str, str],
+        conflict_mode: str = 'preserve',
+    ) -> tuple[int, int]:
+        """Set project names on branches from a {conversation_id: project_name} mapping.
+
+        conflict_mode:
+          'preserve'  — only update rows where project IS NULL or ''
+          'overwrite' — always update; conflicts = count of rows that had a value
+          'flag'      — same as overwrite; conflicts count is surfaced in TUI
+
+        Returns (applied, conflicts).
+        """
+        if not mapping:
+            return 0, 0
+
+        applied = 0
+        conflicts = 0
+
+        for conv_id, project_name in mapping.items():
+            rows = self._conn.execute(
+                'SELECT branch_id, project FROM branches WHERE conversation_id = ?',
+                (conv_id,),
+            ).fetchall()
+
+            for row in rows:
+                existing = row['project'] or ''
+                if conflict_mode == 'preserve' and existing:
+                    continue
+                if existing and conflict_mode in ('overwrite', 'flag'):
+                    conflicts += 1
+                self._conn.execute(
+                    'UPDATE branches SET project = ? WHERE branch_id = ?',
+                    (project_name, row['branch_id']),
+                )
+                applied += 1
+
+        if applied:
+            self._conn.commit()
+
+        return applied, conflicts
+
     def get_all_tags(self) -> list[str]:
         """Return sorted list of all unique tags for autocomplete.
 
