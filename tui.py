@@ -804,7 +804,7 @@ class AppModel(tea.Model):
                     self.pj_paste_mode = False
                     self.pj_paste_input = ''
                     self.pj_status = 'ok:Token saved'
-                except ValueError as e:
+                except (ValueError, OSError) as e:
                     self.pj_status = f'error:{e}'
             elif key == 'backspace':
                 self.pj_paste_input = self.pj_paste_input[:-1]
@@ -827,6 +827,7 @@ class AppModel(tea.Model):
             from config import load_chatgpt_projects
             token = project_fetcher.load_token()
             projects = load_chatgpt_projects()
+            self.pj_projects_count = len(projects)
             if not token:
                 self.pj_status = 'error:No token found — use [B] or [V] first'
             elif not projects:

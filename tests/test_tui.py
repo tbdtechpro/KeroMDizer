@@ -1084,3 +1084,51 @@ def test_projects_token_saved_msg_success(monkeypatch):
     model, _ = model.update(_TokenSavedMsg(success=True, message='Token saved'))
     assert model.pj_token_found is True
     assert 'ok' in model.pj_status
+
+
+def test_projects_token_saved_msg_failure(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model, _ = model.update(_TokenSavedMsg(success=False, message='No token in browser'))
+    assert 'error' in model.pj_status
+    assert 'No token in browser' in model.pj_status
+
+
+def test_projects_paste_confirm_success(monkeypatch, tmp_path):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    token_file = tmp_path / 'token.json'
+    monkeypatch.setattr('tui.project_fetcher.TOKEN_FILE', token_file)
+    # Monkeypatch save_token to avoid writing to real home dir
+    monkeypatch.setattr('retrieve_token.TOKEN_FILE', token_file)
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_paste_mode = True
+    model.pj_paste_input = 'eyJtest'
+    model, _ = model.update(tea.KeyMsg(key='enter'))
+    assert model.pj_paste_mode is False
+    assert model.pj_token_found is True
+    assert 'ok' in model.pj_status
+
+
+def test_projects_r_key_triggers_sync(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {'g-p-abc': 'Tools'})
+    synced = []
+    monkeypatch.setattr('tui._cmd_sync_projects', lambda *a, **kw: synced.append(True))
+    monkeypatch.setattr('tui.project_fetcher.load_token', lambda: 'eyJtoken')
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = True
+    model, _ = model.update(tea.KeyMsg(key='r'))
+    assert model.pj_syncing is True
+    assert len(synced) == 1
+
+
+def test_projects_view_shows_syncing_progress(monkeypatch):
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model.pj_progress = "Fetching 'Tools'… 5 conversations"
+    view = model.view()
+    assert 'Tools' in view
