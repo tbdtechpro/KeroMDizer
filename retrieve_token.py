@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -70,7 +71,11 @@ def parse_token_string(raw: str) -> str:
 
 
 def save_token(token: str, token_file: Path = TOKEN_FILE) -> None:
-    """Write token to JSON file with a fetched_at timestamp."""
+    """Write token to JSON file with a fetched_at timestamp.
+
+    The file is created with mode 0o600 (owner read/write only)
+    to protect the Bearer token from other users on the system.
+    """
     token_file.parent.mkdir(parents=True, exist_ok=True)
     token_file.write_text(
         json.dumps({
@@ -79,6 +84,7 @@ def save_token(token: str, token_file: Path = TOKEN_FILE) -> None:
         }),
         encoding='utf-8',
     )
+    os.chmod(token_file, 0o600)
 
 
 def get_chatgpt_token_from_browser() -> str | None:

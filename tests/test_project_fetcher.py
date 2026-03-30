@@ -65,8 +65,23 @@ def test_fetch_project_map_pagination(monkeypatch):
     )
     assert result == {'conv-1': 'Tools', 'conv-2': 'Tools'}
     assert mock_get.call_count == 2
-    # Second call should pass cursor=abc
+    # First call uses the '0' start sentinel; second uses the real cursor
+    assert mock_get.call_args_list[0].kwargs['params']['cursor'] == '0'
     assert mock_get.call_args_list[1].kwargs['params']['cursor'] == 'abc'
+
+
+def test_fetch_project_map_stops_on_repeated_cursor(monkeypatch):
+    """If API echoes back the same cursor, pagination must stop (no infinite loop)."""
+    responses = [
+        _mock_response([{'conversation_id': 'conv-1'}], next_cursor='stuck'),
+        _mock_response([{'conversation_id': 'conv-2'}], next_cursor='stuck'),
+    ]
+    mock_get = MagicMock(side_effect=responses)
+    monkeypatch.setattr(project_fetcher.requests, 'get', mock_get)
+
+    result = project_fetcher.fetch_project_map(token='tok', projects={'g-p-aaa': 'Tools'})
+    assert 'conv-1' in result
+    assert mock_get.call_count == 2  # stops after detecting repeated cursor
 
 
 def test_fetch_project_map_multiple_projects(monkeypatch):

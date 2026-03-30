@@ -73,6 +73,9 @@ def _fetch_all_conversations(gizmo_id: str, headers: dict) -> list[str]:
             cid = item.get('conversation_id') or item.get('id')
             if cid:
                 conv_ids.append(cid)
-        cursor = data.get('cursor') or None
+        new_cursor = data.get('cursor') or None
+        if new_cursor == cursor:
+            break
+        cursor = new_cursor
 
     return conv_ids
