@@ -75,7 +75,7 @@ else
 fi
 
 # ── 6. Install dev requirements ────────────────────────────────────────────────
-info "Installing requirements (pytest, yake, pygments, bubblepy, pygloss)..."
+info "Installing requirements (pytest, yake, pygments, bubblepy, pygloss, browser_cookie3)..."
 "$VENV_DIR/bin/pip" install --quiet --upgrade pip
 "$VENV_DIR/bin/pip" install --quiet -r requirements-dev.txt
 ok "Dev requirements installed"

@@ -39,6 +39,7 @@ title_style   = (lipgloss.Style()
 hint_style    = lipgloss.Style().foreground(C_MUTED).italic(True)
 error_style   = lipgloss.Style().foreground(C_RED).bold(True)
 success_style = lipgloss.Style().foreground(C_GREEN).bold(True)
+warn_style    = lipgloss.Style().foreground(C_YELLOW).bold(True)
 sel_style     = lipgloss.Style().foreground(C_SEL).bold(True)
 muted_style   = lipgloss.Style().foreground(C_MUTED)
 
@@ -94,6 +95,8 @@ class _ProjectProgressMsg(tea.Msg):
 class _ProjectDoneMsg(tea.Msg):
     applied: int
     conflicts: int
+    skipped: int = 0
+    total: int = 0
 
 @dataclass
 class _ProjectErrorMsg(tea.Msg):
@@ -365,6 +368,7 @@ class AppModel(tea.Model):
         # PROJECTS
         _tok = project_fetcher.load_token()
         self.pj_token_found: bool = _tok is not None
+        self.pj_token_age: str = project_fetcher.load_token_age() or ''
         self.pj_projects_count: int = len(_load_chatgpt_projects())
         self.pj_paste_mode: bool = False
         self.pj_paste_input: str = ''
@@ -773,7 +777,13 @@ class AppModel(tea.Model):
             self.pj_syncing = False
             self.pj_applied = msg.applied
             self.pj_conflicts = msg.conflicts
-            self.pj_status = f'ok:Applied: {msg.applied}  Conflicts: {msg.conflicts}'
+            if msg.skipped and msg.skipped == msg.total:
+                self.pj_status = 'error:All gizmos returned 403 — token expired? Use [B] or [V] to refresh'
+            elif msg.skipped:
+                skip_note = f'  Skipped (403): {msg.skipped}'
+                self.pj_status = f'ok:Applied: {msg.applied}  Conflicts: {msg.conflicts}{skip_note}'
+            else:
+                self.pj_status = f'ok:Applied: {msg.applied}  Conflicts: {msg.conflicts}'
             return self, None
         if isinstance(msg, _ProjectErrorMsg):
             self.pj_syncing = False
@@ -782,9 +792,20 @@ class AppModel(tea.Model):
         if isinstance(msg, _TokenSavedMsg):
             if msg.success:
                 self.pj_token_found = True
+                self.pj_token_age = project_fetcher.load_token_age() or 'just now'
                 self.pj_status = 'ok:Token saved'
+            elif self.pj_token_found:
+                # Browser extraction failed but a saved token already exists — show why
+                self.pj_status = f'warn:Browser extraction failed: {msg.message}'
             else:
                 self.pj_status = f'error:{msg.message}'
+            return self, None
+        if isinstance(msg, _ClipboardMsg) and self.pj_paste_mode:
+            if msg.text.strip():
+                self.pj_paste_input = msg.text.strip()
+                self.pj_status = 'ok:Token read from clipboard — press Enter to save'
+            else:
+                self.pj_status = 'error:Clipboard empty or unreadable'
             return self, None
 
         if not isinstance(msg, tea.KeyMsg):
@@ -795,12 +816,14 @@ class AppModel(tea.Model):
             if key == 'escape':
                 self.pj_paste_mode = False
                 self.pj_paste_input = ''
+                self.pj_status = ''
             elif key == 'enter' and self.pj_paste_input:
                 from retrieve_token import parse_token_string, save_token
                 try:
                     token = parse_token_string(self.pj_paste_input)
                     save_token(token)
                     self.pj_token_found = True
+                    self.pj_token_age = project_fetcher.load_token_age() or 'just now'
                     self.pj_paste_mode = False
                     self.pj_paste_input = ''
                     self.pj_status = 'ok:Token saved'
@@ -822,7 +845,8 @@ class AppModel(tea.Model):
         elif key == 'v' and not self.pj_syncing:
             self.pj_paste_mode = True
             self.pj_paste_input = ''
-            self.pj_status = ''
+            self.pj_status = 'ok:Reading clipboard…'
+            _cmd_clipboard(self._program)
         elif key in ('enter', 'r') and not self.pj_syncing and self.pj_token_found:
             from config import load_chatgpt_projects
             token = project_fetcher.load_token()
@@ -837,7 +861,7 @@ class AppModel(tea.Model):
                 self.pj_syncing = True
                 self.pj_progress = 'Starting sync…'
                 self.pj_status = ''
-                _cmd_sync_projects(token, projects, conflict_mode, self._db, self._program)
+                _cmd_sync_projects(token, projects, conflict_mode, self._db._path, self._program)
 
         return self, None
 
@@ -1189,8 +1213,28 @@ class AppModel(tea.Model):
         lines = [self._header('Projects'), '']
 
         # Token status row
+        _TOKEN_EXPIRY_SECS = 20 * 60  # ChatGPT tokens expire after ~20 minutes
         if self.pj_token_found:
-            tok_s = success_style.render('● Found')
+            age = self.pj_token_age
+            if age:
+                try:
+                    # Parse age seconds to check staleness
+                    raw = age.rstrip(' ago')
+                    if raw.endswith('h'):
+                        age_secs = int(raw[:-1]) * 3600
+                    elif raw.endswith('m'):
+                        age_secs = int(raw[:-1]) * 60
+                    elif raw.endswith('s'):
+                        age_secs = int(raw[:-1])
+                    else:
+                        age_secs = 0
+                except (ValueError, IndexError):
+                    age_secs = 0
+                stale = age_secs >= _TOKEN_EXPIRY_SECS
+                age_s = warn_style.render(f'(saved {age} — likely expired)') if stale else muted_style.render(f'(saved {age})')
+                tok_s = success_style.render('● Found') + f'  {age_s}'
+            else:
+                tok_s = success_style.render('● Found')
         else:
             tok_s = error_style.render('○ Missing')
         lines.append(f'  Token status:  {tok_s}')
@@ -1207,9 +1251,14 @@ class AppModel(tea.Model):
 
         # Paste mode input
         if self.pj_paste_mode:
-            lines.append(muted_style.render('  Paste token (enter confirm, esc cancel):'))
-            display = self.pj_paste_input or ''
-            lines.append(f'  {display}\u2588')
+            lines.append(muted_style.render('  Token (enter confirm, esc cancel):'))
+            if self.pj_paste_input:
+                preview_max = min(self.width - 4, 72) - 10
+                raw = self.pj_paste_input
+                preview = raw[:20] + '…' + raw[-10:] if len(raw) > preview_max else raw
+                lines.append(f'  {preview}\u2588  {muted_style.render(f"({len(raw)} chars)")}')
+            else:
+                lines.append(f'  \u2588')
             lines.append('')
 
         # Sync progress / status
@@ -1217,7 +1266,15 @@ class AppModel(tea.Model):
             lines.append(muted_style.render(f'  {self.pj_progress}'))
         elif self.pj_status:
             prefix, _, rest = self.pj_status.partition(':')
-            s = success_style.render(rest) if prefix == 'ok' else error_style.render(rest)
+            max_len = min(self.width - 4, 72) - 8  # panel width minus borders, padding, indent
+            if len(rest) > max_len:
+                rest = rest[:max_len - 1] + '…'
+            if prefix == 'ok':
+                s = success_style.render(rest)
+            elif prefix == 'warn':
+                s = warn_style.render(rest)
+            else:
+                s = error_style.render(rest)
             lines.append(f'  {s}')
         lines.append('')
 
@@ -1467,7 +1524,7 @@ def _cmd_sync_projects(
     token: str,
     projects: dict[str, str],
     conflict_mode: str,
-    db: 'DatabaseManager',
+    db_path: 'Path',
     program,
 ) -> None:
     """Fetch project→conversation map from ChatGPT API and update DB."""
@@ -1479,10 +1536,14 @@ def _cmd_sync_projects(
                 program.send(_ProjectProgressMsg(project_name=project_name, count=count))
 
         try:
-            mapping = fetch_project_map(token, projects, progress_cb)
-            applied, conflicts = db.bulk_update_projects(mapping, conflict_mode)
+            mapping, skipped = fetch_project_map(token, projects, progress_cb)
+            # Open a fresh connection on this thread — SQLite connections cannot
+            # be shared across threads.
+            thread_db = DatabaseManager(db_path)
+            applied, conflicts = thread_db.bulk_update_projects(mapping, conflict_mode)
+            thread_db.close()
             if program:
-                program.send(_ProjectDoneMsg(applied=applied, conflicts=conflicts))
+                program.send(_ProjectDoneMsg(applied=applied, conflicts=conflicts, skipped=skipped, total=len(projects)))
         except Exception as exc:
             if program:
                 program.send(_ProjectErrorMsg(error=str(exc)))
@@ -1494,15 +1555,22 @@ def _cmd_browser_token(program) -> None:
     """Auto-extract ChatGPT token from browser in a background thread."""
     def _run() -> None:
         from retrieve_token import get_chatgpt_token_from_browser, save_token
+        log_lines: list[str] = []
         try:
-            token = get_chatgpt_token_from_browser()
+            token = get_chatgpt_token_from_browser(log_cb=log_lines.append)
             if token:
                 save_token(token)
                 if program:
                     program.send(_TokenSavedMsg(success=True, message='Token saved'))
             else:
+                # Show the last error line first so it isn't truncated away,
+                # then append informational lines for context.
+                errors = [l for l in log_lines if l.startswith('[!]')]
+                info   = [l for l in log_lines if not l.startswith('[!]')]
+                ordered = errors + info
+                detail = ' / '.join(ordered) if ordered else 'No detail available'
                 if program:
-                    program.send(_TokenSavedMsg(success=False, message='No token found in browser — try [V] paste'))
+                    program.send(_TokenSavedMsg(success=False, message=detail))
         except Exception as exc:
             if program:
                 program.send(_TokenSavedMsg(success=False, message=str(exc)))

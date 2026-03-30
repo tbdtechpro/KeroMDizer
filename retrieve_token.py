@@ -30,6 +30,7 @@ import argparse
 import json
 import os
 import sys
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -42,6 +43,7 @@ def parse_token_string(raw: str) -> str:
     Accepts:
       - Raw JWT string (eyJ...)
       - 'Bearer eyJ...' prefixed string
+      - 'Authorization: Bearer eyJ...' full header line (e.g. copied from dev tools)
       - JSON object with 'accessToken' or 'access_token' key
 
     Raises ValueError on empty input or unrecognised JSON.
@@ -49,6 +51,10 @@ def parse_token_string(raw: str) -> str:
     raw = raw.strip()
     if not raw:
         raise ValueError('Input is empty — no token found')
+
+    # Strip 'Authorization: ' header name prefix (copied from browser dev tools)
+    if raw.lower().startswith('authorization:'):
+        raw = raw[len('authorization:'):].strip()
 
     # Strip Bearer prefix
     if raw.lower().startswith('bearer '):
@@ -87,30 +93,41 @@ def save_token(token: str, token_file: Path = TOKEN_FILE) -> None:
     os.chmod(token_file, 0o600)
 
 
-def get_chatgpt_token_from_browser() -> str | None:
+def get_chatgpt_token_from_browser(
+    log_cb: 'Callable[[str], None] | None' = None,
+) -> str | None:
     """Try to extract ChatGPT Bearer token from the local browser profile.
 
     Uses browser_cookie3 to read the __Secure-next-auth.session-token cookie,
     then exchanges it for a Bearer token via /api/auth/session.
     Tries Firefox first (most reliable on Linux), then Chrome/Chromium.
+
+    Args:
+        log_cb: Optional callback for diagnostic messages. Receives one message
+                string per event. When None, messages are printed to stderr.
+
     Returns the access token string, or None on failure.
     """
+    def _log(msg: str) -> None:
+        if log_cb is not None:
+            log_cb(msg)
+        else:
+            print(msg, file=sys.stderr)
+
     try:
         import browser_cookie3
     except ImportError:
-        print(
-            '[!] browser_cookie3 is not installed.\n'
-            '    Install it with: pip install browser_cookie3\n'
-            '    Or use --paste / --stdin instead.',
-            file=sys.stderr,
-        )
+        _log('[!] browser_cookie3 is not installed — pip install browser_cookie3')
         return None
 
     try:
-        import requests
+        from curl_cffi import requests
     except ImportError:
-        print('[!] requests is not installed: pip install requests', file=sys.stderr)
-        return None
+        try:
+            import requests
+        except ImportError:
+            _log('[!] requests is not installed — pip install requests')
+            return None
 
     browsers = [
         ('Firefox',  getattr(browser_cookie3, 'firefox',  None)),
@@ -121,26 +138,26 @@ def get_chatgpt_token_from_browser() -> str | None:
     session_cookie: str | None = None
     for browser_name, browser_fn in browsers:
         if browser_fn is None:
+            _log(f'[~] {browser_name}: not available in browser_cookie3')
             continue
         try:
             cj = browser_fn(domain_name='.chatgpt.com')
+            found = False
             for c in cj:
                 if c.name == '__Secure-next-auth.session-token' and c.value:
                     session_cookie = c.value
-                    print(f'[*] Found session cookie in {browser_name}')
+                    _log(f'[+] {browser_name}: session cookie found, exchanging for Bearer token…')
+                    found = True
                     break
+            if not found:
+                _log(f'[-] {browser_name}: not logged in or no session cookie')
         except Exception as exc:
-            print(f'[!] {browser_name}: {exc}', file=sys.stderr)
+            _log(f'[!] {browser_name}: {exc}')
         if session_cookie:
             break
 
     if not session_cookie:
-        print(
-            '[!] No ChatGPT session cookie found in any browser.\n'
-            '    Make sure you are logged in at chatgpt.com,\n'
-            '    or use --paste / --stdin.',
-            file=sys.stderr,
-        )
+        _log('[!] Not logged in to chatgpt.com in any browser — use [V] to paste token manually')
         return None
 
     try:
@@ -148,15 +165,17 @@ def get_chatgpt_token_from_browser() -> str | None:
             'https://chatgpt.com/api/auth/session',
             cookies={'__Secure-next-auth.session-token': session_cookie},
             timeout=30,
+            impersonate='firefox',
         )
         resp.raise_for_status()
         token = resp.json().get('accessToken')
         if not token:
-            print('[!] Session exchange succeeded but no accessToken in response.', file=sys.stderr)
+            _log('[!] Token exchange returned no Bearer token — use [V] to paste manually')
             return None
+        _log('[+] Bearer token obtained successfully')
         return token
     except Exception as exc:
-        print(f'[!] Failed to exchange session cookie for token: {exc}', file=sys.stderr)
+        _log(f'[!] Failed to obtain Bearer token: {exc}')
         return None
 
 
@@ -208,7 +227,6 @@ def main() -> None:
 
     save_token(token)
     print(f'[+] Token saved to {TOKEN_FILE}')
-    print('    Note: ChatGPT tokens expire after ~20 minutes. Run the sync soon.')
 
 
 if __name__ == '__main__':

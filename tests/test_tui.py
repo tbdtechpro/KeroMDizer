@@ -1067,6 +1067,30 @@ def test_projects_done_msg_clears_syncing(monkeypatch):
     assert 'ok' in model.pj_status
 
 
+def test_projects_done_msg_all_skipped_shows_error(monkeypatch):
+    """When every gizmo returns 403, show an actionable error, not a misleading ok."""
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectDoneMsg(applied=0, conflicts=0, skipped=19, total=19))
+    assert model.pj_syncing is False
+    assert 'error' in model.pj_status
+    assert '403' in model.pj_status
+
+
+def test_projects_done_msg_partial_skip(monkeypatch):
+    """Partial skips show ok status with a (403) skip count."""
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_syncing = True
+    model, _ = model.update(_ProjectDoneMsg(applied=5, conflicts=0, skipped=2, total=7))
+    assert 'ok' in model.pj_status
+    assert '403' in model.pj_status
+    assert '2' in model.pj_status
+
+
 def test_projects_error_msg_clears_syncing(monkeypatch):
     monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
     model = AppModel()
@@ -1090,8 +1114,20 @@ def test_projects_token_saved_msg_failure(monkeypatch):
     monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
     model = AppModel()
     model.screen = Screen.PROJECTS
+    model.pj_token_found = False  # no pre-existing token → error
     model, _ = model.update(_TokenSavedMsg(success=False, message='No token in browser'))
     assert 'error' in model.pj_status
+    assert 'No token in browser' in model.pj_status
+
+
+def test_projects_token_saved_msg_failure_with_existing_token(monkeypatch):
+    """Browser extraction failure should be non-alarming when a saved token already exists."""
+    monkeypatch.setattr('tui._load_chatgpt_projects', lambda: {})
+    model = AppModel()
+    model.screen = Screen.PROJECTS
+    model.pj_token_found = True  # saved token present — browser failure is non-critical
+    model, _ = model.update(_TokenSavedMsg(success=False, message='No token in browser'))
+    assert 'warn' in model.pj_status
     assert 'No token in browser' in model.pj_status
 
 

@@ -37,6 +37,19 @@ def test_parse_token_string_json_missing_token_raises():
         retrieve_token.parse_token_string(json.dumps({'other': 'value'}))
 
 
+def test_parse_token_string_authorization_header_line():
+    """Full header line copied from browser dev tools."""
+    assert retrieve_token.parse_token_string('Authorization: Bearer eyJtest') == 'eyJtest'
+
+
+def test_parse_token_string_authorization_header_case_insensitive():
+    assert retrieve_token.parse_token_string('AUTHORIZATION: Bearer eyJtest') == 'eyJtest'
+
+
+def test_parse_token_string_authorization_header_with_whitespace():
+    assert retrieve_token.parse_token_string('  Authorization: Bearer eyJtest\n') == 'eyJtest'
+
+
 # ── save_token ────────────────────────────────────────────────────────────────
 
 def test_save_token_writes_json(tmp_path):

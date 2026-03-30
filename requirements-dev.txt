@@ -5,4 +5,5 @@ yake
 pygments
 python-docx
 requests
+curl-cffi
 browser_cookie3
