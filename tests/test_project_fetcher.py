@@ -1,6 +1,4 @@
 import json
-import pytest
-from pathlib import Path
 from unittest.mock import MagicMock
 import project_fetcher
 
@@ -68,8 +66,7 @@ def test_fetch_project_map_pagination(monkeypatch):
     assert result == {'conv-1': 'Tools', 'conv-2': 'Tools'}
     assert mock_get.call_count == 2
     # Second call should pass cursor=abc
-    _, kwargs = mock_get.call_args_list[1]
-    assert kwargs['params']['cursor'] == 'abc'
+    assert mock_get.call_args_list[1].kwargs['params']['cursor'] == 'abc'
 
 
 def test_fetch_project_map_multiple_projects(monkeypatch):
