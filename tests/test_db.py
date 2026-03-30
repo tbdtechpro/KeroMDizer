@@ -606,6 +606,7 @@ def test_bulk_update_applies_to_all_branches(db):
     _seed_conv(db, 'conv-f', branch_count=3)
     applied, conflicts = db.bulk_update_projects({'conv-f': 'Day Job'}, 'preserve')
     assert applied == 3
+    assert conflicts == 0
     for i in range(1, 4):
         row = db.get_branch(f'conv-f__branch_{i}')
         assert row['project'] == 'Day Job'
