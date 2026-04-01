@@ -277,3 +277,99 @@ def test_non_asset_image_not_converted():
     text = '![](https://example.com/image.png)'
     result = _IMAGE_RE.sub(lambda m: f'![[{m.group(1)}]]', text)
     assert result == '![](https://example.com/image.png)'
+
+
+# ── render() integration tests ─────────────────────────────────────────────────
+
+def _make_row_with_messages() -> dict:
+    return _branch_row(
+        messages=[
+            {
+                'role': 'user',
+                'timestamp': '2026-01-14T04:16:34+00:00',
+                'content': [{'type': 'prose', 'text': 'What is Python?'}],
+            },
+            {
+                'role': 'assistant',
+                'timestamp': '2026-01-14T04:16:35+00:00',
+                'content': [
+                    {'type': 'prose', 'text': 'Python is a language.'},
+                    {'type': 'code', 'language': 'python', 'text': 'print("hello")'},
+                ],
+            },
+        ]
+    )
+
+
+def test_render_starts_with_frontmatter():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r.render(_make_row_with_messages())
+    assert result.startswith('---\n')
+
+
+def test_render_contains_title_heading():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r.render(_make_row_with_messages())
+    assert '\n# Hello World\n' in result
+
+
+def test_render_user_turn_uses_question_callout():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r.render(_make_row_with_messages())
+    assert '> [!question] 👤 Matt' in result
+
+
+def test_render_assistant_turn_uses_abstract_callout():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r.render(_make_row_with_messages())
+    assert '> [!abstract] 🤖 ChatGPT' in result
+
+
+def test_render_message_content_inside_callout():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r.render(_make_row_with_messages())
+    assert '> What is Python?' in result
+    assert '> Python is a language.' in result
+    assert '> ```python' in result
+
+
+def test_render_image_converted_to_wikilink():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    row = _branch_row(messages=[{
+        'role': 'user',
+        'timestamp': None,
+        'content': [{'type': 'prose', 'text': '![](assets/file_abc.jpg)'}],
+    }])
+    result = r.render(row)
+    assert '![[file_abc.jpg]]' in result
+    assert '![](assets/' not in result
+
+
+def test_render_empty_messages_produces_valid_output():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r.render(_branch_row(messages=[]))
+    assert result.startswith('---\n')
+    assert '# Hello World' in result
+
+
+def test_render_fallback_persona_when_aliases_missing():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    row = _branch_row(
+        user_alias=None,
+        assistant_alias=None,
+        messages=[
+            {'role': 'user', 'timestamp': None, 'content': [{'type': 'prose', 'text': 'Hi'}]},
+            {'role': 'assistant', 'timestamp': None, 'content': [{'type': 'prose', 'text': 'Hello'}]},
+        ],
+    )
+    result = r.render(row)
+    assert '👤 User' in result
+    assert '🤖 Assistant' in result

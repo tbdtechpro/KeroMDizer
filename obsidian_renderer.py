@@ -14,6 +14,26 @@ def _yaml_quoted(value: str) -> str:
 
 class ObsidianRenderer:
 
+    def render(self, row: dict) -> str:
+        """Render a DB branch row as an Obsidian-optimized markdown string."""
+        parts = [self._build_frontmatter(row), '']
+        title = row.get('title') or 'Untitled'
+        parts.append(f'# {title}')
+        parts.append('')
+        user_alias = row.get('user_alias') or 'User'
+        assistant_alias = row.get('assistant_alias') or 'Assistant'
+        for msg in row.get('messages') or []:
+            role = msg.get('role', '')
+            text = self._segments_to_text(msg.get('content') or [])
+            text = _IMAGE_RE.sub(lambda m: f'![[{m.group(1)}]]', text)
+            if role == 'user':
+                block = self._wrap_callout('question', f'👤 {user_alias}', text)
+            else:
+                block = self._wrap_callout('abstract', f'🤖 {assistant_alias}', text)
+            parts.append(block)
+            parts.append('')
+        return '\n'.join(parts)
+
     def _build_frontmatter(self, row: dict) -> str:
         lines = ['---']
         title = row.get('title') or 'Untitled'
