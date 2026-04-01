@@ -1168,3 +1168,88 @@ def test_projects_view_shows_syncing_progress(monkeypatch):
     model.pj_progress = "Fetching 'Tools'… 5 conversations"
     view = model.view()
     assert 'Tools' in view
+
+
+# ── Obsidian export settings tests ──────────────────────────────────────────────
+
+def test_load_export_settings_obsidian_defaults(tmp_path, monkeypatch):
+    """_load_export_settings returns obsidian_enabled='no' and obsidian_dir='' by default."""
+    monkeypatch.setattr('pathlib.Path.home', lambda: tmp_path)
+    from tui import _load_export_settings
+    result = _load_export_settings()
+    assert result['obsidian_enabled'] == 'no'
+    assert result['obsidian_dir'] == ''
+
+
+def test_save_export_settings_obsidian(tmp_path, monkeypatch):
+    """_save_export_settings writes obsidian = 'yes' and obsidian_dir to TOML [exports]."""
+    monkeypatch.setattr('pathlib.Path.home', lambda: tmp_path)
+    from tui import _save_export_settings
+    _save_export_settings({
+        'obsidian_enabled': 'yes',
+        'obsidian_dir': '/tmp/vault',
+    })
+    toml_text = (tmp_path / '.keromdizer.toml').read_text(encoding='utf-8')
+    assert 'obsidian = "yes"' in toml_text
+    assert 'obsidian_dir = "/tmp/vault"' in toml_text
+
+
+def test_es_fields_includes_obsidian():
+    """AppModel.es_fields contains both obsidian field names."""
+    m = AppModel()
+    assert 'obsidian_enabled' in m.es_fields
+    assert 'obsidian_dir' in m.es_fields
+
+
+def test_es_labels_includes_obsidian():
+    """AppModel.es_labels has human-readable labels for both obsidian fields."""
+    m = AppModel()
+    assert 'obsidian_enabled' in m.es_labels
+    assert 'obsidian_dir' in m.es_labels
+
+
+def test_es_toggle_fields_includes_obsidian():
+    """obsidian_enabled is in the toggle set so Enter cycles its value."""
+    m = AppModel()
+    assert 'obsidian_enabled' in m.es_toggle_fields
+
+
+def test_alternate_export_sweep_obsidian(tmp_path, monkeypatch):
+    """_alternate_export_sweep writes an .md file when obsidian_enabled=True."""
+    from unittest.mock import MagicMock, patch
+    from models import ExportConfig
+    from tui import _alternate_export_sweep
+
+    # Minimal DB row with an md_filename
+    row = {
+        'md_filename': 'Test_Conv.md',
+        'title': 'Test Conv',
+        'provider': 'chatgpt',
+        'branch_index': 1,
+        'is_main_branch': True,
+        'messages': [],
+        'tags': [],
+        'inferred_tags': [],
+        'inferred_syntax': [],
+        'syntax': [],
+        'project': None,
+        'category': None,
+        'conv_create_time': '2026-01-01T00:00:00+00:00',
+        'model_slug': 'gpt-4o',
+    }
+
+    db = MagicMock()
+    db.list_branches.return_value = [row]
+
+    obsidian_dir = tmp_path / 'obsidian'
+    exp_cfg = ExportConfig(obsidian_enabled=True, obsidian_dir=str(obsidian_dir))
+
+    mock_renderer = MagicMock()
+    mock_renderer.render.return_value = '# Test'
+    mock_renderer_class = MagicMock(return_value=mock_renderer)
+
+    with patch.dict('sys.modules', {'obsidian_renderer': MagicMock(ObsidianRenderer=mock_renderer_class)}):
+        count = _alternate_export_sweep(db, tmp_path, exp_cfg, force=True)
+
+    assert count == 1
+    mock_renderer.render.assert_called_once_with(row)
