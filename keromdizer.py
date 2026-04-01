@@ -210,40 +210,57 @@ def main():
             # (covers conversations that were skipped as already up-to-date)
             # Backfill md_filename for branches imported before that column existed.
             db.backfill_md_filenames(args.output)
-            if exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled:
+            if exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled or exp_cfg.obsidian_enabled:
                 sweep_count = 0
+                _obsidian_renderer = None
+                _obsidian_out_dir = None
+                if exp_cfg.obsidian_enabled:
+                    from obsidian_renderer import ObsidianRenderer
+                    _obsidian_renderer = ObsidianRenderer()
+                    _obsidian_out_dir = (
+                        Path(exp_cfg.obsidian_dir).expanduser()
+                        if exp_cfg.obsidian_dir
+                        else args.output / 'obsidian'
+                    )
                 for row in db.list_branches():
                     md_filename = row.get('md_filename') or ''
                     if not md_filename:
                         continue
-                    md_path = args.output / md_filename
-                    if not md_path.exists():
-                        continue
-                    try:
-                        md_content = md_path.read_text(encoding='utf-8')
-                    except OSError:
-                        continue
                     stem = md_filename[:-3]
-                    if exp_cfg.html_github_enabled:
-                        from html_github_exporter import export_html_github
-                        html_dir = Path(exp_cfg.html_github_dir).expanduser() if exp_cfg.html_github_dir else args.output / 'html-github'
-                        out = html_dir / f'{stem}.html'
+                    if exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled:
+                        md_path = args.output / md_filename
+                        if md_path.exists():
+                            try:
+                                md_content = md_path.read_text(encoding='utf-8')
+                            except OSError:
+                                md_content = None
+                            if md_content:
+                                if exp_cfg.html_github_enabled:
+                                    from html_github_exporter import export_html_github
+                                    html_dir = Path(exp_cfg.html_github_dir).expanduser() if exp_cfg.html_github_dir else args.output / 'html-github'
+                                    out = html_dir / f'{stem}.html'
+                                    if not out.exists():
+                                        export_html_github(md_content, out)
+                                        sweep_count += 1
+                                if exp_cfg.html_retro_enabled:
+                                    from html_retro_exporter import export_html_retro
+                                    retro_dir = Path(exp_cfg.html_retro_dir).expanduser() if exp_cfg.html_retro_dir else args.output / 'html-retro'
+                                    out = retro_dir / f'{stem}.html'
+                                    if not out.exists():
+                                        export_html_retro(md_content, out)
+                                        sweep_count += 1
+                                if exp_cfg.docx_enabled:
+                                    from docx_exporter import export_docx
+                                    docx_dir = Path(exp_cfg.docx_dir).expanduser() if exp_cfg.docx_dir else args.output / 'docx'
+                                    out = docx_dir / f'{stem}.docx'
+                                    if not out.exists():
+                                        export_docx(md_content, out)
+                                        sweep_count += 1
+                    if _obsidian_renderer and _obsidian_out_dir:
+                        out = _obsidian_out_dir / md_filename
                         if not out.exists():
-                            export_html_github(md_content, out)
-                            sweep_count += 1
-                    if exp_cfg.html_retro_enabled:
-                        from html_retro_exporter import export_html_retro
-                        retro_dir = Path(exp_cfg.html_retro_dir).expanduser() if exp_cfg.html_retro_dir else args.output / 'html-retro'
-                        out = retro_dir / f'{stem}.html'
-                        if not out.exists():
-                            export_html_retro(md_content, out)
-                            sweep_count += 1
-                    if exp_cfg.docx_enabled:
-                        from docx_exporter import export_docx
-                        docx_dir = Path(exp_cfg.docx_dir).expanduser() if exp_cfg.docx_dir else args.output / 'docx'
-                        out = docx_dir / f'{stem}.docx'
-                        if not out.exists():
-                            export_docx(md_content, out)
+                            out.parent.mkdir(parents=True, exist_ok=True)
+                            out.write_text(_obsidian_renderer.render(row), encoding='utf-8')
                             sweep_count += 1
                 if sweep_count:
                     print(f'Alternate exports: {sweep_count} file(s) generated.')
