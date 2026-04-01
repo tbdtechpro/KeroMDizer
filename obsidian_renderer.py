@@ -71,3 +71,23 @@ class ObsidianRenderer:
             if s and s not in seen:
                 seen.append(s)
         return seen
+
+    def _wrap_callout(self, callout_type: str, label: str, text: str) -> str:
+        """Wrap text in an Obsidian callout block."""
+        lines = [f'> [!{callout_type}] {label}', '>']
+        for line in text.split('\n'):
+            lines.append(f'> {line}' if line else '>')
+        return '\n'.join(lines)
+
+    def _segments_to_text(self, content: list[dict]) -> str:
+        """Reconstruct message text from structured DB content segments."""
+        parts = []
+        for seg in content:
+            if seg.get('type') == 'code':
+                lang = seg.get('language') or ''
+                parts.append(f'```{lang}\n{seg.get("text", "")}\n```')
+            else:
+                text = seg.get('text') or ''
+                if text:
+                    parts.append(text)
+        return '\n\n'.join(parts)

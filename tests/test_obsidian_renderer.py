@@ -180,3 +180,100 @@ def test_frontmatter_syntax_omitted_when_empty():
     r = ObsidianRenderer()
     result = r._build_frontmatter(_branch_row(inferred_syntax=[], syntax=[]))
     assert 'syntax:' not in result
+
+
+# ── Callout tests ──────────────────────────────────────────────────────────────
+
+def test_wrap_callout_header_format():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r._wrap_callout('question', '👤 Matt', 'Hello world')
+    assert result.startswith('> [!question] 👤 Matt\n')
+
+
+def test_wrap_callout_body_lines_prefixed():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r._wrap_callout('note', 'Label', 'line one\nline two')
+    lines = result.split('\n')
+    assert '> line one' in lines
+    assert '> line two' in lines
+
+
+def test_wrap_callout_blank_lines_become_bare_gt():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    result = r._wrap_callout('note', 'Label', 'para one\n\npara two')
+    lines = result.split('\n')
+    # blank line must be '>' not '> ' (no trailing space)
+    assert '>' in lines
+    assert all(l != '> ' for l in lines)
+
+
+def test_wrap_callout_code_fence_lines_prefixed():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    body = '```python\ndef foo():\n    pass\n```'
+    result = r._wrap_callout('abstract', 'Label', body)
+    assert '> ```python' in result
+    assert '> def foo():' in result
+    assert '> ```' in result
+
+
+def test_segments_to_text_prose_only():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    content = [{'type': 'prose', 'text': 'Hello world'}]
+    assert r._segments_to_text(content) == 'Hello world'
+
+
+def test_segments_to_text_code_wrapped_in_fences():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    content = [{'type': 'code', 'language': 'python', 'text': 'print("hi")'}]
+    result = r._segments_to_text(content)
+    assert result == '```python\nprint("hi")\n```'
+
+
+def test_segments_to_text_mixed_separated_by_blank_line():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    content = [
+        {'type': 'prose', 'text': 'See this:'},
+        {'type': 'code', 'language': 'bash', 'text': 'echo hi'},
+    ]
+    result = r._segments_to_text(content)
+    assert 'See this:' in result
+    assert '```bash\necho hi\n```' in result
+    assert 'See this:\n\n```bash' in result
+
+
+def test_segments_to_text_code_no_language():
+    from obsidian_renderer import ObsidianRenderer
+    r = ObsidianRenderer()
+    content = [{'type': 'code', 'language': None, 'text': 'some text'}]
+    result = r._segments_to_text(content)
+    assert result == '```\nsome text\n```'
+
+
+# ── Image conversion tests ─────────────────────────────────────────────────────
+
+def test_image_converted_to_wikilink():
+    from obsidian_renderer import _IMAGE_RE
+    text = '![alt text](assets/file_abc-sanitized.jpg)'
+    result = _IMAGE_RE.sub(lambda m: f'![[{m.group(1)}]]', text)
+    assert result == '![[file_abc-sanitized.jpg]]'
+
+
+def test_image_no_alt_converted():
+    from obsidian_renderer import _IMAGE_RE
+    text = '![](assets/image.png)'
+    result = _IMAGE_RE.sub(lambda m: f'![[{m.group(1)}]]', text)
+    assert result == '![[image.png]]'
+
+
+def test_non_asset_image_not_converted():
+    from obsidian_renderer import _IMAGE_RE
+    text = '![](https://example.com/image.png)'
+    result = _IMAGE_RE.sub(lambda m: f'![[{m.group(1)}]]', text)
+    assert result == '![](https://example.com/image.png)'
