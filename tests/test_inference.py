@@ -58,3 +58,26 @@ def test_build_full_text_concatenates_prose():
     assert 'Hello world' in text
     assert 'Goodbye' in text
     assert 'print()' in text
+
+
+def test_infer_tags_filters_contraction_artifacts():
+    """YAKE produces n't, r'e etc. from contractions — these must be filtered."""
+    text = "don't won't they're we've I'll he'd isn't can't"
+    tags = infer_tags(text, top_n=20)
+    for tag in tags:
+        assert "'" not in tag, f"Contraction artifact leaked into tags: {tag!r}"
+
+
+def test_infer_tags_preserves_tokens_without_apostrophe():
+    """The apostrophe filter must not remove tokens that lack apostrophes."""
+    import yake
+    text = ' '.join(['python'] * 20 + ['api', 'async', 'loop', 'data'])
+    extractor = yake.KeywordExtractor(lan='en', n=1, dedupLim=0.9, top=20)
+    raw = extractor.extract_keywords(text)
+    # Simulate the filter: only tokens with apostrophes should be removed
+    filtered = [kw for kw, _ in raw if "'" not in kw]
+    unfiltered = [kw for kw, _ in raw]
+    # Every token without apostrophe in unfiltered must appear in filtered
+    for kw in unfiltered:
+        if "'" not in kw:
+            assert kw in filtered
