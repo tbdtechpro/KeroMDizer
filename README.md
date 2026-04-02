@@ -84,7 +84,7 @@ The TUI Projects screen (`[P]` from MAIN) syncs your ChatGPT Projects to the loc
 
 ### Getting a Token
 
-**Browser auto-extract (`[B]`) — recommended:** Reads your session cookie directly from Firefox or Chrome and exchanges it for a token automatically. This is the preferred method because it operates within the same browser session context that Cloudflare has already verified. It requires Firefox or Chrome to have an active chatgpt.com session. On Linux, Firefox must not be running when `[B]` is pressed (it locks its profile database while open); Chrome/Chromium can usually be read while running.
+**Browser auto-extract (`[B]`) — recommended:** Reads your session cookie directly from Firefox or Chrome and exchanges it for a token automatically. This is the preferred method because it operates within the same browser session context that Cloudflare has already verified. It requires Firefox or Chrome to have an active chatgpt.com session. On Linux, Firefox may need to be closed when `[B]` is pressed, as it locks its profile database while open — though this is not required on all systems; Chrome/Chromium can usually be read while running.
 
 **Manual paste (`[V]`):** If `[B]` fails, you can paste a token manually:
 
@@ -221,6 +221,28 @@ output/
 
 ---
 
+## Obsidian Export
+
+KeroMDizer can write a parallel set of Obsidian-optimised `.md` files alongside the standard GFM output. Enable it in `~/.keromdizer.toml`:
+
+```toml
+[exports]
+obsidian     = "yes"
+obsidian_dir = "~/notes/chatgpt"   # optional — defaults to {output}/obsidian/
+```
+
+Obsidian files differ from GFM output in three ways:
+
+- **YAML frontmatter** — title, aliases, created date, provider, model, conversation ID, branch info, tags, project, category, and syntax list
+- **Callout-wrapped messages** — user messages use `> [!question]`, assistant messages use `> [!abstract]`
+- **Wikilink images** — `![](assets/file.jpg)` becomes `![[file.jpg]]` for Obsidian's embed syntax
+
+Tags are sanitised to Obsidian's valid character set (lowercase, alphanumeric, hyphens, underscores, forward slashes). Inferred tags from YAKE and user-applied tags are merged and deduplicated.
+
+The TUI SETTINGS screen includes a toggle and directory field for Obsidian export.
+
+---
+
 ## DeepSeek Support
 
 DeepSeek exports are auto-detected from the presence of `user.json` containing a `mobile` field. Override with `--source deepseek`.
@@ -258,6 +280,7 @@ conversation_parser.py  ChatGPT export parsing — tree traversal, branch recons
 deepseek_parser.py      DeepSeek parser (subclasses ConversationParser)
 parser_factory.py       Auto-detect source, return correct parser
 renderer.py             GFM markdown generation
+obsidian_renderer.py    Obsidian-optimised markdown (YAML frontmatter, callouts, wikilinks)
 file_manager.py         Filenames, deduplication, image copying
 models.py               Message, Branch, Conversation, PersonaConfig dataclasses
 config.py               ~/.keromdizer.toml loading
