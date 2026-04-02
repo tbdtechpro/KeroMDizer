@@ -110,3 +110,29 @@ def test_load_export_config_defaults(monkeypatch, tmp_path):
     assert cfg.html_retro_enabled is False
     assert cfg.docx_enabled is False
     assert cfg.html_github_dir == ''
+
+
+def test_load_export_config_obsidian_defaults_to_disabled(monkeypatch, tmp_path):
+    from config import load_export_config
+    monkeypatch.setattr(config, 'CONFIG_PATH', tmp_path / 'nonexistent.toml')
+    cfg = load_export_config()
+    assert cfg.obsidian_enabled is False
+    assert cfg.obsidian_dir == ''
+
+
+def test_load_export_config_obsidian_enabled_from_toml(monkeypatch, tmp_path):
+    from config import load_export_config
+    cfg_file = tmp_path / 'keromdizer.toml'
+    _write_toml(cfg_file, '[exports]\nobsidian = "yes"\n')
+    monkeypatch.setattr(config, 'CONFIG_PATH', cfg_file)
+    cfg = load_export_config()
+    assert cfg.obsidian_enabled is True
+
+
+def test_load_export_config_obsidian_dir_from_toml(monkeypatch, tmp_path):
+    from config import load_export_config
+    cfg_file = tmp_path / 'keromdizer.toml'
+    _write_toml(cfg_file, '[exports]\nobsidian = "yes"\nobsidian_dir = "/my/vault"\n')
+    monkeypatch.setattr(config, 'CONFIG_PATH', cfg_file)
+    cfg = load_export_config()
+    assert cfg.obsidian_dir == '/my/vault'

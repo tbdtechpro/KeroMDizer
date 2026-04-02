@@ -8,7 +8,7 @@ def infer_tags(text: str, top_n: int = 10) -> list[str]:
         return []
     extractor = yake.KeywordExtractor(lan='en', n=1, dedupLim=0.9, top=top_n)
     results = extractor.extract_keywords(text)
-    return [kw for kw, _score in results]
+    return [kw for kw, _score in results if "'" not in kw]
 
 
 def infer_syntax(segments: list[ContentSegment]) -> list[str]:

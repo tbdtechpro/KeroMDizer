@@ -201,6 +201,8 @@ def _load_export_settings() -> dict[str, str]:
         'html_retro_dir':      e.get('html_retro_dir', ''),
         'docx_enabled':        e.get('docx', 'no'),
         'docx_dir':            e.get('docx_dir', ''),
+        'obsidian_enabled':    e.get('obsidian', 'no'),
+        'obsidian_dir':        e.get('obsidian_dir', ''),
     }
 
 
@@ -218,7 +220,8 @@ def _save_export_settings(values: dict[str, str]) -> None:
     exports: dict[str, str] = {}
     for key in ('html_github_enabled', 'html_github_dir',
                 'html_retro_enabled', 'html_retro_dir',
-                'docx_enabled', 'docx_dir'):
+                'docx_enabled', 'docx_dir',
+                'obsidian_enabled', 'obsidian_dir'):
         v = values.get(key, '')
         if v:
             # Map field names to TOML keys
@@ -226,6 +229,7 @@ def _save_export_settings(values: dict[str, str]) -> None:
                 'html_github_enabled': 'html_github',
                 'html_retro_enabled':  'html_retro',
                 'docx_enabled':        'docx',
+                'obsidian_enabled':    'obsidian',
             }.get(key, key)
             exports[toml_key] = v
     if exports:
@@ -350,6 +354,7 @@ class AppModel(tea.Model):
             'html_github_enabled', 'html_github_dir',
             'html_retro_enabled', 'html_retro_dir',
             'docx_enabled', 'docx_dir',
+            'obsidian_enabled', 'obsidian_dir',
         ]
         self.es_labels: dict[str, str] = {
             'html_github_enabled': 'HTML (GitHub style)',
@@ -358,8 +363,10 @@ class AppModel(tea.Model):
             'html_retro_dir':      'HTML Retro output dir',
             'docx_enabled':        'DOCX (Word document)',
             'docx_dir':            'DOCX output dir',
+            'obsidian_enabled':    'Obsidian vault export',
+            'obsidian_dir':        'Obsidian output dir',
         }
-        self.es_toggle_fields: set[str] = {'html_github_enabled', 'html_retro_enabled', 'docx_enabled'}
+        self.es_toggle_fields: set[str] = {'html_github_enabled', 'html_retro_enabled', 'docx_enabled', 'obsidian_enabled'}
         self.es_values: dict[str, str] = es_defaults
         self.es_cursor: int = 0
         self.es_status: str = ''
@@ -696,7 +703,7 @@ class AppModel(tea.Model):
             threading.Thread(target=_do_sweep, daemon=True).start()
         elif self.es_cursor < n:
             field_key = self.es_fields[self.es_cursor]
-            _es_dir_fields = {'html_github_dir', 'html_retro_dir', 'docx_dir'}
+            _es_dir_fields = {'html_github_dir', 'html_retro_dir', 'docx_dir', 'obsidian_dir'}
             if field_key in self.es_toggle_fields:
                 if key in ('enter', ' '):
                     current = self.es_values.get(field_key, 'no')
@@ -1662,7 +1669,7 @@ def _alternate_export_sweep(
     When force=False (post-import sweep), skips files that already exist.
     Returns the number of files written.
     """
-    if not (exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled):
+    if not (exp_cfg.html_github_enabled or exp_cfg.html_retro_enabled or exp_cfg.docx_enabled or exp_cfg.obsidian_enabled):
         return 0
     count = 0
     for row in db.list_branches():
@@ -1703,6 +1710,19 @@ def _alternate_export_sweep(
                 out = docx_dir / f'{stem}.docx'
                 if force or not out.exists():
                     export_docx(content, out)
+                    count += 1
+            except Exception:
+                pass
+        if exp_cfg.obsidian_enabled:
+            try:
+                from obsidian_renderer import ObsidianRenderer
+                obsidian_renderer = ObsidianRenderer()
+                obsidian_dir = (Path(exp_cfg.obsidian_dir).expanduser()
+                                if exp_cfg.obsidian_dir else output_dir / 'obsidian')
+                out = obsidian_dir / md_filename
+                if force or not out.exists():
+                    out.parent.mkdir(parents=True, exist_ok=True)
+                    out.write_text(obsidian_renderer.render(row), encoding='utf-8')
                     count += 1
             except Exception:
                 pass

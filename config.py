@@ -77,6 +77,8 @@ def load_export_config() -> ExportConfig:
         html_retro_dir=e.get('html_retro_dir', ''),
         docx_enabled=e.get('docx', 'no') == 'yes',
         docx_dir=e.get('docx_dir', ''),
+        obsidian_enabled=e.get('obsidian', 'no') == 'yes',
+        obsidian_dir=e.get('obsidian_dir', ''),
     )
 
 

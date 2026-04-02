@@ -49,6 +49,8 @@ class ExportConfig:
     html_retro_dir: str = ''
     docx_enabled: bool = False
     docx_dir: str = ''
+    obsidian_enabled: bool = False
+    obsidian_dir: str = ''
 
 
 @dataclass
